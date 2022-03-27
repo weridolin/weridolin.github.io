@@ -2,7 +2,7 @@
 跨域是浏览器的一种安全同源策略，其限制了当前允许JS请求的服务器范围,必须满足**同源**的条件。否则就会抛出*cors*请求出错
 
 > 一个典型的请求跨域错误
-![一个典型的请求跨域错误](/recource/images/cros_err.png)
+![一个典型的请求跨域错误](../recource/images/cros_err.png)
 
 
 ## 什么是同源
@@ -30,7 +30,7 @@
 
 
 > 一个 Content-Type 为 *application/json* 的跨域请求
-![prefight](/recource/images/prefight.png)
+![prefight](../recource/images/prefight.png)
 
 
 ## 服务端预检的处理
@@ -86,7 +86,7 @@ class Resquest(BaseHTTPRequestHandler):
 ```
 
 > 处理后POST请求已经可以发送成功
-![POST](/recource/images/cros_post.png)
+![POST](../recource/images/cros_post.png)
 
 
 ps: *是非常暴力的方式,最好直接指定一些具体的域名

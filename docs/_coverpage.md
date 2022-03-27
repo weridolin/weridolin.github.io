@@ -6,6 +6,6 @@
 
 随心记录一些遇到的问题haha
 
-[冲冲冲](_navbar.md)
+[冲冲冲](readme)
 <!-- [Get Started](#quick-start) -->
 

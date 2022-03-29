@@ -64,7 +64,7 @@ class Interceptor(object):
 
     def __call__(self,environ,start_response) -> Any:
         print("get a request from client") # before call test_api
-        res =  app(environ=environ,start_response=start_response)
+        res =  self.app(environ=environ,start_response=start_response)
         print(f"request is finish,result:{result}") # after call test_api
 
         # 返回请求结果
@@ -94,5 +94,6 @@ request is finish,result:exec wsgi application finish  ## 调用后拦截
 ```
 
 ## 总结
-总的来说，middleware就是对wsgi-app的一层包装，多少个middleware就是包装了多少层,同时第一层必须也是符合WSGI标准，也可以当成一个WSGI-App,然后在调用我们定义的wsgi-app的前后做处理。
+总的来说，middleware就是对wsgi-app的一层包装，多少个middleware就是包装了多少层,同时第一层必须也是符合WSGI标准，也可以当成一个WSGI-App,然后在调用我们定义的wsgi-app的前后做处理。必须紧急，WGSI调用的是app(),不管app是func 或者一个class.所以中间件就是对__call__进行操作
 
+## 多个中间件套娃

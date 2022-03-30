@@ -229,3 +229,70 @@ django在启动监听服务的时候会调用**load_middleware**对middleware进
 * 要想把中间件的*process_request*传递给下个中间件处理,可以把处理结果放在*request对象中*
 
 * 中间件调用完成后,最终调用**WSGIHandler()._get_response()**
+
+```python
+# django WSGIHandler
+    ...
+
+    def _get_response(self, request):
+        """
+        Resolve and call the view, then apply view, exception, and
+        template_response middleware. This method is everything that happens
+        inside the request/response middleware.
+        """
+        response = None
+        ## 根据request path找到对应的WSGI APP
+        callback, callback_args, callback_kwargs = self.resolve_request(request) 
+        # callback is wsgi app 
+
+        # Apply view middleware
+        for middleware_method in self._view_middleware:
+            ## middleware_method 为 middleware 中的 process_view 方法
+            response = middleware_method(request, callback, callback_args, callback_kwargs)
+            if response:
+                break
+
+        if response is None:
+            wrapped_callback = self.make_view_atomic(callback)
+            # If it is an asynchronous view, run it in a subthread.
+            if asyncio.iscoroutinefunction(wrapped_callback):
+                wrapped_callback = async_to_sync(wrapped_callback)
+            try:
+                response = wrapped_callback(request, *callback_args, **callback_kwargs)
+            except Exception as e:
+                response = self.process_exception_by_middleware(e, request)
+                if response is None:
+                    raise
+
+        # Complain if the view returned None (a common error).
+        self.check_response(response, callback)
+
+        # If the response supports deferred rendering, apply template
+        # response middleware and then render the response
+        if hasattr(response, 'render') and callable(response.render):
+            for middleware_method in self._template_response_middleware:
+                response = middleware_method(request, response)
+                # Complain if the template response middleware returned None (a common error).
+                self.check_response(
+                    response,
+                    middleware_method,
+                    name='%s.process_template_response' % (
+                        middleware_method.__self__.__class__.__name__,
+                    )
+                )
+            try:
+                response = response.render()
+            except Exception as e:
+                response = self.process_exception_by_middleware(e, request)
+                if response is None:
+                    raise
+
+        return response
+        
+        ...
+
+
+```
+* 该方法主要是根据request信息定位到对应的wsgi-app,解析出对应的args和kw-args,再调用wsgi-app之前,会去调用middleware列表中的*process_view*方法,比如上面的[middleware1,middleware2,middleware3],会依次调用*middleware1.process_view,middleware2.process_view,middleware3.process_view*,同样，如果返回不会空，则直接作为处理结果返回，否则，再去调用`callback(request, *callback_args, **callback_kwargs)`返回view的处理结果。
+
+* request处理完成后，此时已经在middlerware列表的栈底(middlerware列表可以当成一个栈,请求到来时是从栈顶到栈底,返回响应是从栈底到栈顶),由上面可以得到处理的调用是**response = middleware1(middleware2(middleware3(self._get_response))).__call__(request)**,则此时response的返回顺序是**middleware1.process_view1(middleware2.process_view(middleware3.process_view()))**

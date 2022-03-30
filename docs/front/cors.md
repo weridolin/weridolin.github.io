@@ -26,7 +26,7 @@
 一个简单请求必须满足以下条件:
 * 请求方法为 HEAD / POST /GET
 * 请求头中Content-Type 为 *application/x-www-form-urlencoded*,*multipart/form-data*,*text/plain*
-否则该请求会被浏览去认为时复杂请求，当出现跨域时浏览器会发送*option*预检请求
+否则该请求会被浏览器认为是复杂请求，当出现跨域时浏览器会发送*option*预检请求
 
 
 > 一个 Content-Type 为 *application/json* 的跨域请求

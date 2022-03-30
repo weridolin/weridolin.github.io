@@ -168,45 +168,12 @@ class BaseHandler:
         return response
 
 
-## 对 middleware 实例进行封装
-def convert_exception_to_response(get_response):
-    """
-    Wrap the given get_response callable in exception-to-response conversion.
-
-    All exceptions will be converted. All known 4xx exceptions (Http404,
-    PermissionDenied, MultiPartParserError, SuspiciousOperation) will be
-    converted to the appropriate response, and all other exceptions will be
-    converted to 500 responses.
-
-    This decorator is automatically applied to all middleware to ensure that
-    no middleware leaks an exception and that the next middleware in the stack
-    can rely on getting a response instead of an exception.
-    """
-    if asyncio.iscoroutinefunction(get_response):
-        @wraps(get_response)
-        async def inner(request):
-            try:
-                response = await get_response(request)
-            except Exception as exc:
-                response = await sync_to_async(response_for_exception, thread_sensitive=False)(request, exc)
-            return response
-        return inner
-    else:
-        @wraps(get_response)
-        def inner(request):
-            try:
-                response = get_response(request) # get_response相当于load_middlerware中的mw_instance
-            except Exception as exc:
-                response = response_for_exception(request, exc)
-            return response
-        return inner
-
 ```
 
 
 django在启动监听服务的时候会调用**load_middleware**对middleware进行实例化，在整个生命周期只会实例化一次.查看load_middleware中的for-loop(对middleware_list倒序遍历).这里简单实现了一个中间件的递归,假设我们有以下中间件列表:[middleware1,middleware2,middleware3],则循环开始前,**get_response**参数为**self._get_response()**,则实例化**middleware3**是可简化为**middleware3(self._get_response)**,然后赋值给handler,进入第二次循环.实例化**middleware1**时相当于**middleware2(middleware3(self._get_response))**,然后再赋值给handler.接着是第三个**middleware2**,最后的**handler**相当于**middleware1(middleware2(middleware3(self._get_response)))**
 
-所以,当request到来时,先是通过了middleware调用链**response = self._middleware_chain(request)**,既可以当成为**response = middleware1(middleware2(middleware3(self._get_response))).__call__(request)**
+所以,当request到来时,先是通过了middleware调用链**response = self._middleware_chain(request)**,既可以当成为**response = middleware1(middleware2(middleware3(self._get_response))).__call__(request)**,即`1.middleware1().__call__(request). 2.middleware2().__call__(request). 3 middleware3(self._get_response)).__call__(request) 4.self._get_response`
 
 我们再通过MiddleWareMixin中的_call__方法
 ```python

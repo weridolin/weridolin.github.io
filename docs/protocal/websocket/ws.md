@@ -70,23 +70,32 @@ WS和HTTP都是基于TCP的的应用程协议，WS是通过HTTP发起握手的,�
 ## 建立连接
 先在本地起一个WS服务，然后再网页端发起一个WS连接,可以看到从建立连接的过程:
 ![ws连接建立抓包](../../recource/images/ws1.png)
+
 由抓取的到的数据包我们可以知道WS的握手过程:
+
 * 1.先按照TCP协议发起3次握手并且[建立连接]('TODO'),此时只是先建立了一个TCP连接
 * 2.TCP连接建立后.客户端再向服务端发送一个HTTP请求,这个HTTP请求里面包含了升级为WEBSOCKET连接的头部信息
 * 3.服务端收到该HTTP请求后,将回复*101 Switching Protocols*,表示建立一个WS连接
+
 ![wsHTTP建立连接请求](../../recource/images/wshttprequest.png)
+
 ![服务端回应](../../recource/images/wshttpresponse.png)
+
 
 总的来说,WS的建立过程就是一个HTTP的请求过程,并且建立连接后不会close该链接
 
 ## 发送数据
 建立连接后,后续的发送数据帧的过程其实都是走的*TCP*协议,数据会被包装成对应的WS数据帧,通过TCP发送,由数据帧的格式可以知道,每个发送的数据都为额外添加3字节的数据帧信息。
+
 ![WS发送数据抓包]((../../recource/images/wssendmsg.png))
-数据帧的长度为 *3字节+数据编码后的字节长度*     
+
+数据帧的长度为 *3字节+数据编码后的字节长度*    
+
 发送完成后,数据接收方会回应一个TCP回应数据帧.
 
 ## 关闭连接
 ![ws关闭连接抓包](../../recource/images/wscloseconn.png)
+
 * 关闭连接时，关闭端首先发送一个包含关闭操作码的数据帧.接着就是走TCP的关闭连接时4次握手的流程。
 
 
@@ -503,3 +512,5 @@ class WebSocketHandler(StreamRequestHandler):
         with self._send_lock:
             self.request.send(header + payload)
 ```
+
+## 客户端

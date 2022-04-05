@@ -29,6 +29,9 @@ ws同样是基于Http协议的，建立连接前同样要经过3次握手:
 * 这里必须注意,握手阶段返回的状态码必须为101,如果不是,都表示这个ws的握手阶段*没有完成*,一般客户端会抛出 "handshake status 200"的错误.
 * 客户端收到响应后,会对*status code*,*Sec-WebSocket-Accept*进行校验.校验不通过,握手阶段将不会继续进行
 
+### 关于 Sec-WebSocket-Protocol   
+比如指定两边传送的数据都为json,以JSON格式去解析数据,则可以在*Sec-WebSocket-Protocol*中添加JSON来标记
+
 ### 握手时client的Sec-WebSocket-Key和Sec-WebSocket-Accept的Sec-WebSocket-Accept的校验
 TODO
 
@@ -87,7 +90,7 @@ WS和HTTP都是基于TCP的的应用程协议，WS是通过HTTP发起握手的,�
 ## 发送数据
 建立连接后,后续的发送数据帧的过程其实都是走的*TCP*协议,数据会被包装成对应的WS数据帧,通过TCP发送,由数据帧的格式可以知道,每个发送的数据都为额外添加3字节的数据帧信息。
 
-![WS发送数据抓包]((../../recource/images/wssendmsg.png))
+![WS发送数据抓包](../../recource/images/wssendmsg.png)
 
 数据帧的长度为 *3字节+数据编码后的字节长度*    
 
@@ -514,3 +517,199 @@ class WebSocketHandler(StreamRequestHandler):
 ```
 
 ## 客户端
+
+1.接收解析服务端发过来的数据
+```python
+#  代码来自 https://github.com/websocket-client/websocket-client/blob/master/websocket/_core.py
+
+    ...
+    def recv_data_frame(self, control_frame=False):
+        """
+        Receive data with operation code.
+
+        If a valid ping message is received, a pong response is sent.
+
+        Parameters
+        ----------
+        control_frame: bool
+            a boolean flag indicating whether to return control frame
+            data, defaults to False
+
+        Returns
+        -------
+        frame.opcode, frame: tuple
+            tuple of operation code and string(byte array) value.
+        """
+        while True:
+            # receive frame 就是按照WS的数据帧协议的格式去接收消息
+            frame = self.recv_frame()
+
+            if (isEnabledForTrace()):
+                trace("++Rcv raw: " + repr(frame.format()))
+                trace("++Rcv decoded: " + frame.__str__())
+            if not frame:
+                # handle error:
+                # 'NoneType' object has no attribute 'opcode'
+                raise WebSocketProtocolException(
+                    "Not a valid frame %s" % frame)
+
+            ## 如果分块发送，根据fin 和 OPCODE 来标记
+            elif frame.opcode in (ABNF.OPCODE_TEXT, ABNF.OPCODE_BINARY, ABNF.OPCODE_CONT): 
+                # 如果有分片，则继续WHILE读取下一帧数据，直到fin=1,为完整的数据帧
+                self.cont_frame.validate(frame)
+                self.cont_frame.add(frame)
+
+                if self.cont_frame.is_fire(frame):
+                    return self.cont_frame.extract(frame)
+
+            elif frame.opcode == ABNF.OPCODE_CLOSE:
+                self.send_close()
+                return frame.opcode, frame
+            elif frame.opcode == ABNF.OPCODE_PING:
+                if len(frame.data) < 126:
+                    self.pong(frame.data)
+                else:
+                    raise WebSocketProtocolException(
+                        "Ping message is too long")
+                if control_frame:
+                    return frame.opcode, frame
+            elif frame.opcode == ABNF.OPCODE_PONG:
+                if control_frame:
+                    return frame.opcode, frame
+    
+
+    ...
+
+
+```
+
+
+客户端解析过程如下，主要还是根据WS的数据帧的格式去解析:
+
+```python 
+class frame_buffer:
+    _HEADER_MASK_INDEX = 5
+    _HEADER_LENGTH_INDEX = 6
+
+    def __init__(self, recv_fn, skip_utf8_validation):
+        self.recv = recv_fn
+        self.skip_utf8_validation = skip_utf8_validation
+        # Buffers over the packets from the layer beneath until desired amount
+        # bytes of bytes are received.
+        self.recv_buffer = []
+        self.clear()
+        self.lock = Lock()
+
+    def clear(self):
+        self.header = None
+        self.length = None
+        self.mask = None
+
+    def has_received_header(self) -> bool:
+        return self.header is None
+
+    def recv_header(self): # 读取前2个字节的数据并按照WS协议解析
+        header = self.recv_strict(2) 
+        b1 = header[0]
+        fin = b1 >> 7 & 1
+        rsv1 = b1 >> 6 & 1
+        rsv2 = b1 >> 5 & 1
+        rsv3 = b1 >> 4 & 1
+        opcode = b1 & 0xf
+        b2 = header[1]
+        has_mask = b2 >> 7 & 1
+        length_bits = b2 & 0x7f # 长度标记
+
+        self.header = (fin, rsv1, rsv2, rsv3, opcode, has_mask, length_bits)
+
+    def has_mask(self):
+        if not self.header:
+            return False
+        return self.header[frame_buffer._HEADER_MASK_INDEX]
+
+    def has_received_length(self) -> bool:
+        return self.length is None
+
+    def recv_length(self): # 根据payload bit 获取数据帧的长度
+        bits = self.header[frame_buffer._HEADER_LENGTH_INDEX]
+        length_bits = bits & 0x7f
+        if length_bits == 0x7e:  #126 7+16 BIT
+            v = self.recv_strict(2)
+            self.length = struct.unpack("!H", v)[0]
+        elif length_bits == 0x7f: # 127 7+64 BIT 
+            v = self.recv_strict(8)
+            self.length = struct.unpack("!Q", v)[0]
+        else:
+            self.length = length_bits
+
+    def has_received_mask(self) -> bool:
+        return self.mask is None
+
+    def recv_mask(self): # MAKE-KEY  4 BYTES
+        self.mask = self.recv_strict(4) if self.has_mask() else ""
+
+    def recv_frame(self):
+
+        with self.lock:
+            # Header
+            if self.has_received_header():
+                self.recv_header()
+            (fin, rsv1, rsv2, rsv3, opcode, has_mask, _) = self.header
+
+            # Frame length
+            if self.has_received_length():
+                self.recv_length()
+            length = self.length
+
+            # Mask
+            if self.has_received_mask():
+                self.recv_mask()
+            mask = self.mask
+
+            # Payload
+            payload = self.recv_strict(length)
+            if has_mask:
+                payload = ABNF.mask(mask, payload)
+
+            # Reset for next frame
+            self.clear()
+
+            frame = ABNF(fin, rsv1, rsv2, rsv3, opcode, has_mask, payload)
+            frame.validate(self.skip_utf8_validation)
+
+        return frame
+
+    def recv_strict(self, bufsize: int) -> bytes:
+        shortage = bufsize - sum(map(len, self.recv_buffer))
+        while shortage > 0:
+            # Limit buffer size that we pass to socket.recv() to avoid
+            # fragmenting the heap -- the number of bytes recv() actually
+            # reads is limited by socket buffer and is relatively small,
+            # yet passing large numbers repeatedly causes lots of large
+            # buffers allocated and then shrunk, which results in
+            # fragmentation.
+            bytes_ = self.recv(min(16384, shortage))
+            self.recv_buffer.append(bytes_)
+            shortage -= len(bytes_)
+
+        unified = b"".join(self.recv_buffer)
+
+        if shortage == 0:
+            self.recv_buffer = []
+            return unified
+        else:
+            self.recv_buffer = [unified[bufsize:]]
+            return unified[:bufsize]
+
+
+```
+
+
+# 其他
+
+### handshake 200 的错误
+主要是握手完成后,客户端发送建立连接的HTTP请求后，服务端没有按照WS协议返回101，而是直接返回200，一般是服务端没有WS的服务，直接当成HTTP服务处理了         
+
+![handshake200错误](../../recource/images/handshake200.png)
+
+![handshake请求和响应](../../recource/images/handshake200response.png)

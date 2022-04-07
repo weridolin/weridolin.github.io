@@ -105,3 +105,46 @@
 #     return min(dp[i-1],dp[i-2])
 
 # print(less_cost())
+
+
+#### 最大子数组和
+# 给你一个整数数组 nums ,请你找出一个具有最大和的连续子数组（子数组最少包含一个元素），返回其最大和。
+# 子数组 是数组中的一个连续部分。
+
+# 例子:
+# 输入：nums = [-2,1,-3,4,-1,2,1,-5,4]
+# 输出：6
+# 解释：连续子数组 [4,-1,2,1] 的和最大,为6 
+
+
+# 1. 确定dp数组和实际下标代表的实际含义
+# dp[i]表示以i为结尾的整数数组的最大子串值
+# dp[0]: nums[0]
+# dp[1]: max(dp[0]+nums[1],nums[1]) [-2,1],[1]
+# dp[2]:max(dp[1]+nums[2],nums[2]) [-2,1,-3],[1,-3],[-3] #
+
+# 2. 推导出表达式,因为下个状态是由上个状态决定的,所以一般为递归表达式
+# dp[i] = max(dp[i-1],dp[i-1]+num[i])
+
+# 3. dp数据初始化,即初始状态
+# dp[0]: nums[0]
+# dp[1]: max(dp[0]+nums[1],nums[1]) [-2,1],[1]
+# dp[2]:max(dp[1]+nums[2],nums[2]) [-2,1,-3],[1,-3],[-3])
+# ...
+# dp[i] =max(dp[i-1]+nums[i],nums[i])
+
+# 4. 确定遍历顺序,比如当前状态是上次状态决定,则遍历顺序为从前到后
+# 从前到后
+
+# def get_max_child_array(nums = [-2,1,-3,4,-1,2,1,-5,4]):
+#     if len(nums)==1:
+#         return nums[0]
+#     else:
+#         pre_max = nums[0]
+#         max_ = nums[0]
+#         for index in range(1,len(nums)):
+#             pre_max = max(nums[index],pre_max+nums[index])
+#             max_ = max(pre_max,max_)   # 这里不是返回最后一个,而是取最大一个
+
+#         return max_
+# print(get_max_child_array(),get_max_child_array([1]),get_max_child_array([5,4,-1,7,8]))

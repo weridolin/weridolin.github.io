@@ -20,3 +20,6 @@
 - 前端  
     - [跨域问题](/front/cors.md)
 
+- devops
+    - [uwsgi](/devops/uwsgi/uwsgi.md)
+

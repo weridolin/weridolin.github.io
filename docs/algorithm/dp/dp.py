@@ -148,3 +148,102 @@
 
 #         return max_
 # print(get_max_child_array(),get_max_child_array([1]),get_max_child_array([5,4,-1,7,8]))
+
+
+##### 杨辉三角
+# https://leetcode-cn.com/problems/pascals-triangle/
+# 示例 1:
+
+# 输入: numRows = 5
+# 输出: [[1],[1,1],[1,2,1],[1,3,3,1],[1,4,6,4,1]]
+
+# dp[i]表示第i层对应的数据，d[i][j]表示第i层第j个元素的值
+# dp[0] = [[1]]
+# dp[0][0] = 1
+# dp[1] = [[1,1]]
+# dp[1][0]=1,dp[1][1]=1
+# dp[2] = [[1,2,1]] 
+# dp[3] = [[1,3,3,1]] 
+# dp[3][0] =1 dp[3][3] =1 dp[3][1]=dp[2][0]+dp[2][1] dp[3][2]=dp[2][1]+dp[2][2]
+# ...
+
+
+# 推导表达式
+# dp[i][j] = dp[i-1][j-1]+d[i-1][j] i>2
+
+
+# def pascals_triangle(numRows=5):
+#     if numRows ==1:return [[1]]
+#     if numRows ==2:return [[1],[1,1]]
+#     dp = [[1],[1,1]]
+#     for i in range(2,numRows):
+#         tmp = [1]
+#         for j in range(1,i):
+#             tmp.append(dp[i-1][j-1]+dp[i-1][j])
+#         tmp.append(1)
+#         dp.append(tmp)
+#     return dp
+# print(pascals_triangle())
+
+# def getRow(rowIndex):
+#     """
+#     :type rowIndex: int
+#     :rtype: List[int]
+#     """
+#     if rowIndex ==0:return [[1]]
+#     if rowIndex ==1:return [[1],[1,1]]
+#     dp = [[1],[1,1]]
+#     for i in range(2,rowIndex+1):
+#         tmp = [1]
+#         for j in range(1,i):
+#             tmp.append(dp[i-1][j-1]+dp[i-1][j])
+#         tmp.append(1)
+#         dp.append(tmp)
+#     return dp[-1]
+# print(getRow(3))
+
+
+#### 股票买卖问题
+# 给定一个数组 prices ，它的第 i 个元素 prices[i] 表示一支给定股票第 i 天的价格。
+# 你只能选择 某一天 买入这只股票，并选择在 未来的某一个不同的日子 卖出该股票。设计一个算法来计算你所能获取的最大利润。
+# 返回你可以从这笔交易中获取的最大利润。如果你不能获取任何利润，返回 0 。
+
+# 示例 1：
+
+# 输入：[7,1,5,3,6,4]
+# 输出：5
+# 解释：在第 2 天（股票价格 = 1）的时候买入，在第 5 天（股票价格 = 6）的时候卖出，最大利润 = 6-1 = 5 。
+#      注意利润不能是 7-1 = 6, 因为卖出价格需要大于买入价格；同时，你不能在买入前卖出股票。
+
+
+# 1. 确定dp数组和实际下标代表的实际含义
+# dp[i]表示以i天卖出可以获取的最大利润   minprice表示第I天最小的价格
+
+
+# 2. 推导出表达式,因为下个状态是由上个状态决定的,所以一般为递归表达式
+# dp[i] = max(dp[i-1],prices[i]-minprices)
+# minprices = min(prices[i],minprice)
+
+# 3. dp数据初始化,即初始状态,多了个最小状态方程
+# dp[0]: 0 minprice = prices[0]
+# dp[1]:max(dp[1],prices[1]-minprice))  minprice = min(prices[1],minprice)
+# ...
+# dp[i]:max(dp[i-1],prices[i]-minprice) minprice = min(prices[i],minprice)
+
+
+# 4. 确定遍历顺序,比如当前状态是上次状态决定,则遍历顺序为从前到后
+# 从前到后
+
+# def maxProfit(prices=[7,1,5,3,6,4]):
+#     """
+#     :type prices: List[int]
+#     :rtype: int
+#     """
+#     if len(prices)==1:return 0
+#     dp = [0]*len(prices)
+#     minprice = prices[0]
+#     for i in range(1,len(prices)):
+#         dp[i] = max(dp[i-1],prices[i]-minprice)
+#         minprice = min(prices[i],minprice)
+#     return max(dp,key=lambda item:item) 
+# print(maxProfit())

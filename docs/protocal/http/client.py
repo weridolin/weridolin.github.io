@@ -27,8 +27,8 @@ conn.send(chunk_data(body, size_per_chunk).encode('utf-8'))
 resp = conn.getresponse()
 print(resp.status, resp.reason)
 import socket
-conn.sock.shutdown(socket.SHUT_RDWR) # TCP断开四次握手
-# conn.close()
+conn.sock.shutdown(socket.SHUT_WR) # TCP断开四次握手
+conn.close()
 import time
 time.sleep(10)
 

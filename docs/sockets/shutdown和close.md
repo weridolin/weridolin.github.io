@@ -63,7 +63,8 @@ def close(self):
 
 
 ## 总结
-但用客户端做HTTP请求，如果自己手动关闭，则正确的方式应该为: `socket.shutdown(socket.SHUT_WR) --> socket.close()`
+但用客户端做HTTP请求，如果自己手动关闭，则正确的方式应该为: `socket.shutdown(socket.SHUT_WR) --> socket.close()`        
+![NORMAL](../recource/images/TCP-SHUTDOWN-FIN-NORMAL.png)
 
 
 

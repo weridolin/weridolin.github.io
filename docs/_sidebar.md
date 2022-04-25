@@ -10,7 +10,10 @@
     - [普通阻塞模型](/sockets/%E6%99%AE%E9%80%9A%E9%98%BB%E5%A1%9E.md)
     - [select模型](/sockets/select%E6%A8%A1%E5%9E%8B.md)
     - [epoll模型](/sockets/epoll%E6%A8%A1%E5%9E%8B.md)
+    - [shutdown和close](/sockets/shutdown%E5%92%8Cclose.md)
 
+
+    
 - 网络协议
     - [http](/protocal/http/http.md)
     - [websocket](/protocal/websocket/ws.md)

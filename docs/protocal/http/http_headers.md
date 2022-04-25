@@ -138,3 +138,8 @@ class CustomHTTPRequestHandler(BaseHTTPRequestHandler):
 
 ### chunk-data 传输数据抓包格式
 ![chunk-data](../../recource/images/chunk-data.png)
+
+
+### 补充
+* 当调用`close`操作后.会马上关闭调用方的`socket-fd`.而服务方socket会进入time_wait状态.
+* 当正常走的TCP四次握手断开流程，双方都会马上关闭`socket-fd`.

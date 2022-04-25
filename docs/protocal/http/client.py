@@ -29,6 +29,7 @@ print(resp.status, resp.reason)
 import socket
 # conn.sock.shutdown(socket.SHUT_WR) # TCP断开四次握手
 conn.close()
+
 import time
 time.sleep(10)
 

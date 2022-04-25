@@ -47,7 +47,7 @@ st->middle->break->op1
         error response has already been sent back.
 
         """
-        # 解析request line,得到method url http version
+        ############################################## 解析request line,得到method url http version
         self.command = None  # set in case of error on the first line
         self.request_version = version = self.default_request_version
         self.close_connection = True
@@ -80,16 +80,18 @@ st->middle->break->op1
                     "Bad request version (%r)" % version)
                 return False
             if version_number >= (1, 1) and self.protocol_version >= "HTTP/1.1":
-                ### http 1.1 版本默认为 connection 为keep alive
+                ### http 1.1 版本默认为connection为 keep-alive，此时同个域名建立的TCP链接不会关系,后面所有的请求都走的这个
+                ### 链接。
                 self.close_connection = False
-            if version_number >= (2, 0):
-                self.send_error(
+            if version_number >= (2, 0): 
+                # 暂时不支持http2.0
+                self.send_error( 
                     HTTPStatus.HTTP_VERSION_NOT_SUPPORTED,
                     "Invalid HTTP version (%s)" % base_version_number)
                 return False
             self.request_version = version
 
-        if not 2 <= len(words) <= 3:
+        if not 2 <= len(words) <= 3: 
             self.send_error(
                 HTTPStatus.BAD_REQUEST,
                 "Bad request syntax (%r)" % requestline)
@@ -97,13 +99,14 @@ st->middle->break->op1
         command, path = words[:2]
         if len(words) == 2:
             self.close_connection = True
-            if command != 'GET':
+            if command != 'GET': # http 0.9只支持 GET
                 self.send_error(
                     HTTPStatus.BAD_REQUEST,
                     "Bad HTTP/0.9 request type (%r)" % command)
                 return False
         self.command, self.path = command, path
 
+        ############################################# 解析请求头 ##########################
         # Examine the headers and look for a Connection directive.
         try:
             ## 解析头部
@@ -123,6 +126,7 @@ st->middle->break->op1
             )
             return False
 
+        # 判断是否为 keep-alive.SERVER再决定处理完成后是否close connection
         conntype = self.headers.get('Connection', "")
         if conntype.lower() == 'close':
             self.close_connection = True
@@ -130,8 +134,11 @@ st->middle->break->op1
               self.protocol_version >= "HTTP/1.1"):
             self.close_connection = False
         # Examine the headers and look for an Expect directive
+        ## expect 100-continue 主要是客户端向服务端发送数据时，如果需要先确认是否能发送，可发送
+        ## expect 100-continue. 服务端收到改请求后发送一个状态为 continue的响应或者 final的响应
+        ## 来决定是否要回复
         expect = self.headers.get('Expect', "")
-        if (expect.lower() == "100-continue" and
+        if (expect.lower() == "100-continue" and 
                 self.protocol_version >= "HTTP/1.1" and
                 self.request_version >= "HTTP/1.1"):
             if not self.handle_expect_100():

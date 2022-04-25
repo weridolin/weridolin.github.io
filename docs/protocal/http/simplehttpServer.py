@@ -1,3 +1,5 @@
+
+from http.client import BAD_REQUEST
 from http.server import BaseHTTPRequestHandler,HTTPServer
 import json
 from http import HTTPStatus
@@ -5,7 +7,7 @@ from unicodedata import name
 
 ### HTTP处理chunk
 class CustomHTTPRequestHandler(BaseHTTPRequestHandler):
-    protocol_version = 'HTTP/1.1' #开启keep-alive,http要使用ThreadingHTTPServer,否则一次性只能处理一个keep-alive连接
+    protocol_version = 'HTTP/1.1' # 开启keep-alive,http要使用ThreadingHTTPServer,否则一次性只能处理一个keep-alive连接
 
     def _read_data(self):
         content_length = int(self.headers['Content-Length']) 
@@ -13,28 +15,30 @@ class CustomHTTPRequestHandler(BaseHTTPRequestHandler):
     
     def do_PUT(self):
         # self._read_data()
+        print(self.headers)
+        if "Content-Length" in self.headers and "chunked" in self.headers.get("Transfer-Encoding", ""):
+            raise AttributeError(">>> 请求头错误")
         if "Content-Length" in self.headers:
             content_length = int(self.headers["Content-Length"])
             body = self.rfile.read(content_length)
             print(">>>> content_length type",body)
         elif "chunked" in self.headers.get("Transfer-Encoding", ""):
-            # with open(path, "wb") as out_file:
             while True:
                 line = self.rfile.readline().strip()
-                chunk_length = int(line, 16)
-
-                if chunk_length != 0:
-                    chunk = self.rfile.read(chunk_length)
-                    # out_file.write(chunk)
-                    print(chunk)
-
-                # Each chunk is followed by an additional empty newline
-                # that we have to consume.
-                self.rfile.readline()
-
-                # Finally, a chunk size of 0 is an end indication
-                if chunk_length == 0:
-                    break
+                if line:
+                    chunk_length = int(line, 16)
+                    if chunk_length != 0:
+                        chunk = self.rfile.read(chunk_length)
+                        # out_file.write(chunk)
+                        print(chunk.decode("utf-8"))
+                    # Each chunk is followed by an additional empty newline
+                    # that we have to consume.
+                    self.rfile.readline()
+                    # Finally, a chunk size of 0 is an end indication
+                    if chunk_length == 0:
+                        break
+                else:
+                    print(">>>> line",line)
         reply_response = {
             "status":HTTPStatus.OK,
             "data":{

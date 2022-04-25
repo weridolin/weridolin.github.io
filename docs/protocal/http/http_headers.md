@@ -68,3 +68,73 @@ Content-Type: text/plain
 
 
 
+## content-length 和 Transfer-Encoding:chunked的区别
+* 当发送的数据的长度是确定的时候.直接使用`content-length`
+* 当发送的数据长度不确实时候，可以使用 `Transfer-Encoding:chunked`,此时请求头不应该使用`content-length`
+
+### Transfer-Encoding:chunked的data数据结构
+```
+<chunked-length:十六进制> \r\n
+chunk-data \r\n
+...
+0\r\n  //chunk 传递结束
+\r\n 
+
+```
+
+```text
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Transfer-Encoding: chunked
+7\r\n
+Mozilla\r\n
+9\r\n
+Developer\r\n
+7\r\n
+Network\r\n
+0\r\n
+\r\n
+
+```
+
+### http服务端的一个读取数据类型为“chunk”的一个例子
+
+```python
+### HTTP处理chunk
+class CustomHTTPRequestHandler(BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1' #开启keep-alive,http要使用ThreadingHTTPServer,否则一次性只能处理一个keep-alive连接
+
+    def do_PUT(self):
+        if "Content-Length" in self.headers and "chunked" in self.headers.get("Transfer-Encoding", ""):
+            raise AttributeError(">>> 请求头错误")
+        if "Content-Length" in self.headers:
+            content_length = int(self.headers["Content-Length"])
+            body = self.rfile.read(content_length)
+            print(">>>> content_length type",body)
+        elif "chunked" in self.headers.get("Transfer-Encoding", ""):
+            ## chunked类型要一直读取直到收到结束标记("0/r/n/r/n")
+            while True: 
+                line = self.rfile.readline().strip()
+                chunk_length = int(line, 16)
+                if chunk_length != 0:
+                    chunk = self.rfile.read(chunk_length)
+                    print(chunk.decode("utf-8"))
+                self.rfile.readline()
+                if chunk_length == 0:
+                    break
+        reply_response = {
+            "status":HTTPStatus.OK,
+            "data":{
+                "msg":"success"
+            }
+        }
+        res = json.dumps(reply_response,ensure_ascii=False).encode('utf-8')
+        self.send_response(HTTPStatus.OK)
+        self.send_header('Content-type', 'application/json')
+        self.send_header("Content-length",len(res))
+        self.end_headers()
+        self.wfile.write(res)       
+```
+
+### chunk-data 传输数据抓包格式
+![chunk-data](../../recource/images/chunk-data.png)

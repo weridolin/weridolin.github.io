@@ -23,10 +23,21 @@
         repo:"https://github.com/weridolin/weridolin.github.io",
         loadSidebar: true,
         // subMaxLevel: 2,
-
+        // subMaxLevel: 0,       // 生成目录的最大层级,默认0
+        // maxLevel: 4,
+        // toc: {
+        //   tocMaxLevel: 3,
+        //   target: 'h2, h3, h4, h5, h6'
+      // },  
     }
   </script>
-  <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
   <script src="//cdn.jsdelivr.net/npm/docsify/lib/docsify.min.js"></script>
+  <!-- 页面右侧 TOC -->
+  <script src="//unpkg.com/docsify-plugin-toc"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.25.0/components/prism-java.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.25.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.25.0/components/prism-shell-session.min.js"></script>
+  <script src="//unpkg.com/docsify/lib/plugins/emoji.js"></script>
+  <script src="//unpkg.com/docsify-copy-code"></script>
 </body>
 </html>

@@ -117,7 +117,59 @@ main()
 
 - *for*循环机制会捕获*StopIteration*异常而不抛出
 
+#### yield from 逻辑伪代码
+```python
+_i = iter(EXPR)  
+try:
+    _y = next(_i) # 激活携程
+except StopIteration as _e: 
+    _r = _e.value # iter 结束 有 return 则获取 return的值，否为为 None（python 函数默认return None）
+else:
+    while 1: # 此时委托生成器会阻塞，只作为调用方和子生成器的通道
+        try:_
+            _s = yield _y  # 迭代
+        except GeneratorExit as _e: 
+            try:
+                # 这一部分用于关闭委派生成器和子生成器。因为子生成器可以是任 何可迭代的对象，所以可能没有 close 方法
+                _m = _i.close  
+            except AttributeError: 
+                pass 
+            else:
+                _m() # 有close 方法则调用
+            raise _e 
+        except BaseException as _e: ## 处理 gen.throw()异常
+            _x = sys.exc_info() 
+            try:
+                _m = _i.throw  # 可能没有 throw方法
+            except AttributeError: 
+                raise _e 
+            else: 
+                try:
+                    _y = _m(*_x) 
+                except StopIteration as _e:
+                    _r = _e.value 
+                    break 
+        else: 
+            try: 
+                # 如果调用方最后发送的值是 None，在子生成器上调用 next 函数， 否则调用 send 方法。
+                if _s is None:  
+                    _y = next(_i) 
+                else:
+                    _y = _i.send(_s) 
+            except StopIteration as _e: 
+                _r = _e.value 
+                break
+RESULT = _r 
+
+```
+
 ### 总结: 
 - 一般生成器要获取返回值最好用*yield*,关闭时用*gen.throw* or *gen.close*
 - *yield from* 可以接收一个子生成器的*return*值，而不会抛出异常,但是*yield from*所在的生成器如果用*return*，调用方还是引发*StopIteration*异常
 - 总的来说，要想生成器中的*return*不抛出异常，只能用*yield from (iterator)*去接收.
+
+
+
+
+## await
+*await* 是*yield from*的语法糖

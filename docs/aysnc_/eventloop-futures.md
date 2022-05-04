@@ -601,7 +601,82 @@ class BaseEventLoop(events.AbstractEventLoop):
 ```
 run_forever其实就是不断去运行*run_once*，先检测*_scheduled*中需要执行的任务添加到*_ready*.接着selectIO模型对异步任务进行调用(`event_list = self._selector.select(timeout)self._process_events(event_list)`)，最后执行*_ready*中待执行的callback.
 
+#### selectEventLoop
+*selectEventLoop*是基于SELECT IO模型的事件循环,主要用来*selector高级库*.集成于*BaseEventLoop*.直接看源码注释
+```python
+## asyncio.selector_event.py
+class BaseSelectorEventLoop(base_events.BaseEventLoop):
+    """Selector event loop.
 
+    See events.EventLoop for API specification.
+
+    ## READERS --> INPUTS |  WRITERS --> OUTPUTS
+    """
+
+    def __init__(self, selector=None):
+        super().__init__()
+
+        if selector is None:
+            selector = selectors.DefaultSelector()
+        logger.debug('Using selector: %s', selector.__class__.__name__)
+        self._selector = selector
+        self._make_self_pipe()
+        self._transports = weakref.WeakValueDictionary()
+
+    ...
+    def _add_reader(self, fd, callback, *args):
+        self._check_closed()
+        handle = events.Handle(callback, args, self, None)
+        try:
+            key = self._selector.get_key(fd)
+        except KeyError:
+            self._selector.register(fd, selectors.EVENT_READ,
+                                    (handle, None))
+        else:
+            mask, (reader, writer) = key.events, key.data
+            self._selector.modify(fd, mask | selectors.EVENT_READ,
+                                  (handle, writer))
+            if reader is not None:
+                reader.cancel()
+        return handle
+
+
+    def _add_writer(self, fd, callback, *args):
+        self._check_closed()
+        handle = events.Handle(callback, args, self, None) #loop每个callback都会封装成handle
+        try:
+            key = self._selector.get_key(fd) # selector是否已经监听该I/O？
+        except KeyError:
+            self._selector.register(fd, selectors.EVENT_WRITE,
+                                    (None, handle)) # selector不存在该IO监听，注册添加
+        else:
+            # selector已经存在监听，修改状态
+            mask, (reader, writer) = key.events, key.data
+            self._selector.modify(fd, mask | selectors.EVENT_WRITE,
+                                  (reader, handle))
+            if writer is not None:# 把原来该I/O对应的写状态的回调取消掉，读的状态的回调保留
+                writer.cancel()
+        return handle
+
+
+    def _process_events(self, event_list):
+        for key, mask in event_list:
+            fileobj, (reader, writer) = key.fileobj, key.data
+            if mask & selectors.EVENT_READ and reader is not None:
+                if reader._cancelled:
+                    self._remove_reader(fileobj)
+                else:
+                    self._add_callback(reader)
+            if mask & selectors.EVENT_WRITE and writer is not None:
+                if writer._cancelled:
+                    self._remove_writer(fileobj)
+                else:
+                    self._add_callback(writer)
+    
+```
+主要看*_add_reader*,*_add_writer*,*_process_events*3个函数.由*baseEventLoop*的代码可以知道,loop每次循环的时候,会运行`event_list = self._selector.select(timeout)self._process_events(event_list)`.对于*selectEventLoop*来说。就是调用select.Select,得到可读/写的文件IO事件列表，如果取消,则从selector中注销，否则接着调用*_add_callback*,把该任务的回调添加到loop的*_ready*里面去执行.
+- *_add_reader*,*_add_writer*,就是注册监听一个文件I/O的状态,loop会监听对应的事件并进行过相应的回调处理
+- 注意I/O操作是在内核中执行的，用户态这边只是负责接收I/O的状态并执行回调.
 
 ## futures
 *future*在python异步编程中可以理解为一个异步任务,所有的异步任务都是一个*future*对象，其提供了*result*,*add_done_callback*等方法提供调用.

@@ -39,7 +39,7 @@ sel.register(sock, selectors.EVENT_READ, accept) # 注册socket IO 和回调 dat
 while True:
     events = sel.select()
     for key, mask in events:
-        callback = key.data
+        callback = key.data ## key.DATA 就是register时传进入的， mask是对应的event
         callback(key.fileobj, mask)
 
 

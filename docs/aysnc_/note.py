@@ -2,23 +2,23 @@
 from inspect import getgeneratorstate
 class StopException(Exception):pass
 
-def count():
-    total,num = 0,1
-    while True:
-        try:
-            new = yield 
-            if new!="stop":
-                total+=new
-                num+=1
-            else:
-                break
-        except StopException:
-            print("throw stop exception")
-            # yield total/num
-            break
-        except StopIteration:
-            print(">>> 抛出 StopIteration 异常")
-    return total/num
+# def count():
+#     total,num = 0,1
+#     while True:
+#         try:
+#             new = yield 
+#             if new!="stop":
+#                 total+=new
+#                 num+=1
+#             else:
+#                 break
+#         except StopException:
+#             print("throw stop exception")
+#             # yield total/num
+#             break
+#         except StopIteration:
+#             print(">>> 抛出 StopIteration 异常")
+#     return total/num
 
 # count_iterator = count()
 # count_iterator.send(None) # 激活，此时会运行到 yield 处返回
@@ -48,19 +48,36 @@ def count():
 
 ################## 加入 yield from 
 
-def middle():
-    while True:
-        res = yield from count()
-        print(">>>>>",res)
-        # return res #
+# def middle():
+#     while True:
+#         res = yield from count()
+#         print(">>>>>",res)
+#         # return res #
 
-def main():
-    count_iterator =  middle()
-    count_iterator.send(None) # 
-    count_iterator.send(1) # 
-    count_iterator.send(2) 
-    count_iterator.send(3)
-    res = count_iterator.send("stop")  
-    print(res)
+# def main():
+#     count_iterator =  middle()
+#     count_iterator.send(None) # 
+#     count_iterator.send(1) # 
+#     count_iterator.send(2) 
+#     count_iterator.send(3)
+#     res = count_iterator.send("stop")  
+#     print(res)
 
-main()
+# main()
+import asyncio
+
+def hello_world(loop):
+    """A callback to print 'Hello World' and stop the event loop"""
+    print('Hello World')
+    loop.stop()
+
+loop = asyncio.get_event_loop()
+
+# Schedule a call to hello_world()
+loop.call_soon(hello_world, loop)
+
+# Blocking call interrupted by loop.stop()
+try:
+    loop.run_forever()
+finally:
+    loop.close()

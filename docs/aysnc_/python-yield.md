@@ -172,4 +172,4 @@ RESULT = _r
 
 
 ## await
-*await* 是*yield from*的语法糖
+*await* 是*yield from*的语法糖,*await iterator* 等价于 *yield from iterator*

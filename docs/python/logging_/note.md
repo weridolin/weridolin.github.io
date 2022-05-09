@@ -95,7 +95,9 @@ class Filterer(object):
 - 要自定义*filter*,只需继承于*Filter*，并实现*class.filter* or *class._call_*方法即可.   
 
 自定义filter如下:
+
 ```python
+
 import logging
 messages = []
 logger = logging.getLogger(__name__)
@@ -116,7 +118,6 @@ logger.debug("i am filter >>>>")
 logger.debug("i am not filter >>>>")
 
 # >>>>> i am not filter 
-
 ```
 
 #### handler

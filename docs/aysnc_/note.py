@@ -1,6 +1,6 @@
 
-from inspect import getgeneratorstate
-class StopException(Exception):pass
+# from inspect import getgeneratorstate
+# class StopException(Exception):pass
 
 # def count():
 #     total,num = 0,1
@@ -25,7 +25,6 @@ class StopException(Exception):pass
 # count_iterator.send(1) # 从上次 yield 地方继续运行 到下个 yield
 # count_iterator.send(2) 
 # count_iterator.send(3)
-
 # 停止1,通过Send值得判断来结束，此时会抛出StopIteration异常,return值在exc.value里面
 # try:
 #     count_iterator.send("stop")   # 
@@ -64,20 +63,20 @@ class StopException(Exception):pass
 #     print(res)
 
 # main()
-import asyncio
+# import asyncio
 
-def hello_world(loop):
-    """A callback to print 'Hello World' and stop the event loop"""
-    print('Hello World')
-    loop.stop()
+# def hello_world(loop):
+#     """A callback to print 'Hello World' and stop the event loop"""
+#     print('Hello World')
+#     loop.stop()
 
-loop = asyncio.get_event_loop()
+# loop = asyncio.get_event_loop()
 
-# Schedule a call to hello_world()
-loop.call_soon(hello_world, loop)
+# # Schedule a call to hello_world()
+# loop.call_soon(hello_world, loop)
 
-# Blocking call interrupted by loop.stop()
-try:
-    loop.run_forever()
-finally:
-    loop.close()
+# # Blocking call interrupted by loop.stop()
+# try:
+#     loop.run_forever()
+# finally:
+#     loop.close()

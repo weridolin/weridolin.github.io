@@ -485,6 +485,29 @@ class BaseEventLoop(events.AbstractEventLoop):
 ##### loop.run_forever()
 
 ```python
+    def __init__(self, coro, *, loop=None, name=None):
+        super().__init__(loop=loop)
+        if self._source_traceback:
+            del self._source_traceback[-1]
+        if not coroutines.iscoroutine(coro):
+            # raise after Future.__init__(), attrs are required for __del__
+            # prevent logging for pending task in __del__
+            self._log_destroy_pending = False
+            raise TypeError(f"a coroutine was expected, got {coro!r}")
+
+        if name is None:
+            self._name = f'Task-{_task_name_counter()}'
+        else:
+            self._name = str(name)
+
+        self._must_cancel = False
+        self._fut_waiter = None
+        self._coro = coro
+        self._context = contextvars.copy_context()
+
+        self._loop.call_soon(self.__step, context=self._context)
+        _register_task(self)
+
     ...
     def run_forever(self):
         """Run until stop() is called."""
@@ -512,7 +535,7 @@ class BaseEventLoop(events.AbstractEventLoop):
             sys.set_asyncgen_hooks(*old_agen_hooks)
     ...
 
-        def _run_once(self):
+    def _run_once(self):
         """Run one full iteration of the event loop.
 
         This calls all currently ready callbacks, polls for I/O,
@@ -677,9 +700,14 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
 主要看*_add_reader*,*_add_writer*,*_process_events*3个函数.由*baseEventLoop*的代码可以知道,loop每次循环的时候,会运行`event_list = self._selector.select(timeout)self._process_events(event_list)`.对于*selectEventLoop*来说。就是调用select.Select,得到可读/写的文件IO事件列表，如果取消,则从selector中注销，否则接着调用*_add_callback*,把该任务的回调添加到loop的*_ready*里面去执行.
 - *_add_reader*,*_add_writer*,就是注册监听一个文件I/O的状态,loop会监听对应的事件并进行过相应的回调处理
 - 注意I/O操作是在内核中执行的，用户态这边只是负责接收I/O的状态并执行回调.
+- 总的来说,大致的逻辑就是当遇到一个I/O任务时,先往*eventloop*注册一个事件回调.当内核IO完成时,触发回调.*eventloop*再完成回调函数的逻辑
 
-## futures
-*future*在python异步编程中可以理解为一个异步任务,所有的异步任务都是一个*future*对象，其提供了*result*,*add_done_callback*等方法提供调用.
+
+#### IOCPEventLoop
+#### TODO
+
+## asyncio.futures
+*future*在python异步编程中可以理解为一个异步任务的执行结果,所有的异步任务都是一个继承了*future*的对象，其提供了*result*,*add_done_callback*等方法提供调用.
 -  result():返回 Future 的结果。如果 Future 状态为 完成 ，并由 set_result() 方法设置一个结果（task的返回值），则返回这个结果。如果 Future 状态为完成 ，并由set_exception()方法设置一个异常(task运行异常)，那么这个方法会引发异常。如果Future已取消，方法会引发一个 CancelledError 异常。如果 Future 的结果还不可用，此方法会引发一个InvalidStateError异常。
 - 与*concurrent.futures.Future*类不同,asyncio.Future为可等待的对象*await future*
 
@@ -688,5 +716,151 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
 
 ```
 
+## task
+task是对*协程*多加了一层封装.继承了*asyncio.futures*,通过方法*__step()*方法驱动*协程*的运行,直接看源码
+
+```python 
+class Task:
+    
+    def __init__(self, coro, *, loop=None, name=None):
+        super().__init__(loop=loop)
+        if self._source_traceback:
+            del self._source_traceback[-1]
+        if not coroutines.iscoroutine(coro):
+            # raise after Future.__init__(), attrs are required for __del__
+            # prevent logging for pending task in __del__
+            self._log_destroy_pending = False
+            raise TypeError(f"a coroutine was expected, got {coro!r}")
+
+        if name is None:
+            self._name = f'Task-{_task_name_counter()}'
+        else:
+            self._name = str(name)
+
+        self._must_cancel = False
+        self._fut_waiter = None
+        self._coro = coro
+        self._context = contextvars.copy_context()
+
+        ## 初始化时添加到 eventloop的 _ready队列
+        self._loop.call_soon(self.__step, context=self._context)
+        _register_task(self)
+    
+    ......
+
+    def __step(self, exc=None):
+        ## call soon :在下次时间循环的时候执行
+        ## callback：set result / exception 的时候再去执行
+        if self.done():
+            raise exceptions.InvalidStateError(
+                f'_step(): already done: {self!r}, {exc!r}')
+        if self._must_cancel:
+            if not isinstance(exc, exceptions.CancelledError):
+                exc = self._make_cancelled_error()
+            self._must_cancel = False
+        coro = self._coro
+        self._fut_waiter = None
+
+        _enter_task(self._loop, self) # 把CORE注册到到全局变量
+        # Call either coro.throw(exc) or coro.send(None).
+        try:
+            ## 开始驱动协程的运行
+            if exc is None:
+                # We use the `send` method directly, because coroutines
+                # don't have `__iter__` and `__next__` methods.
+                result = coro.send(None) # 启动core
+            else:
+                result = coro.throw(exc) # 有异常直接抛出异常
+        except StopIteration as exc:
+            ## 异步任务停止执行. 1.提前被取消 2.运行完成,return了值
+            if self._must_cancel:
+                # Task is cancelled right before coro stops.
+                self._must_cancel = False
+                super().cancel(msg=self._cancel_message) #
+            else:
+                super().set_result(exc.value) ## yield return 值会引发
+        except exceptions.CancelledError as exc:
+            # Save the original exception so we can chain it later.
+            self._cancelled_exc = exc #
+            super().cancel()  # I.e., Future.cancel(self).
+        except (KeyboardInterrupt, SystemExit) as exc:
+            super().set_exception(exc)
+            raise
+        except BaseException as exc:
+            super().set_exception(exc)
+        else:
+            blocking = getattr(result, '_asyncio_future_blocking', None)
+            if blocking is not None:
+                # Yielded Future must come from Future.__iter__().
+                if futures._get_loop(result) is not self._loop:
+                    new_exc = RuntimeError(
+                        f'Task {self!r} got Future '
+                        f'{result!r} attached to a different loop')
+                    self._loop.call_soon(
+                        self.__step, new_exc, context=self._context) # 
+                elif blocking:
+                    if result is self:
+                        new_exc = RuntimeError(
+                            f'Task cannot await on itself: {self!r}')
+                        self._loop.call_soon(
+                            self.__step, new_exc, context=self._context)
+                    else:
+                        result._asyncio_future_blocking = False
+                        result.add_done_callback( ## callback是在set result/exception时再去执行的
+                            self.__wakeup, context=self._context)
+                        self._fut_waiter = result
+                        if self._must_cancel:
+                            if self._fut_waiter.cancel(
+                                    msg=self._cancel_message):
+                                self._must_cancel = False
+                else:
+                    new_exc = RuntimeError(
+                        f'yield was used instead of yield from '
+                        f'in task {self!r} with {result!r}')
+                    self._loop.call_soon(
+                        self.__step, new_exc, context=self._context)
+
+            elif result is None:
+                # Bare yield relinquishes control for one event loop iteration.
+                self._loop.call_soon(self.__step, context=self._context)
+            elif inspect.isgenerator(result):
+                # Yielding a generator is just wrong.
+                new_exc = RuntimeError(
+                    f'yield was used instead of yield from for '
+                    f'generator in task {self!r} with {result!r}')
+                self._loop.call_soon(
+                    self.__step, new_exc, context=self._context)
+            else:
+                # Yielding something else is an error.
+                new_exc = RuntimeError(f'Task got bad yield: {result!r}')
+                self._loop.call_soon(
+                    self.__step, new_exc, context=self._context)
+        finally:
+            _leave_task(self._loop, self)
+            self = None  # Needed to break cycles when an exception occurs.
+
+    def __wakeup(self, future):
+        try:
+            future.result()
+        except BaseException as exc:
+            # This may also be a cancellation.
+            self.__step(exc)
+        else:
+            # Don't pass the value of `future.result()` explicitly,
+            # as `Future.__iter__` and `Future.__await__` don't need it.
+            # If we call `_step(value, None)` instead of `_step()`,
+            # Python eval loop would use `.send(value)` method call,
+            # instead of `__next__()`, which is slower for futures
+            # that return non-generator iterators from their `__iter__`.
+            self.__step()
+        self = None  # Needed to break cycles when an exception occurs.
+
+
+```
+- 初始化task时,将*task.__step*添加到绑定的*eventLoop*的*_ready*队列上(调用call_soon)
+- *eventLoop*开始运行,每次都会去运行*_ready*中的*task*，即运行*task.__step*
+- *task.__step*开始运行，运行到I/O操作(该I/O操作必须为异步,否则不会让出控制权)开始让出控制权.判断是否运行完成/异常.是的话把回调函数再添加到*_ready*队列里面下次运行.如果返回的result为None,说明异步函数还没有运行完成(函数运行完成会触发*stopIteration*).直接把*__step*添加到*_ready*队列运行.
+
+
 ## loop.run_in_executor     
-当*loop*运行一个阻塞的任务时.整个事件循环会阻塞，及当前的线程也会阻塞,对应的其他task也不会执行。要是想把一个阻塞的任务/或者同步代码编程异步,可以用*loop.run_in_executor*,以线程方式去运行，当前对应的事件循环也不会进入阻塞状态。
+当*loop*运行一个阻塞的任务时.整个事件循环会阻塞，及当前的线程也会阻塞,对应的其他task也不会执行。要是想把一个阻塞的任务/或者同步代码编程异步,可以用*loop.run_in_executor*,以线程方式去运行，当前对应的事件循环也不会进入阻塞状态

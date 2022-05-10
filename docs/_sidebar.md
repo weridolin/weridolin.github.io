@@ -2,7 +2,7 @@
     - [selectors](/python/selectors_/selectors.md)
     - [logging](/python/logging_/note.md)
 - async
-    - [yield](/aysnc_/python-yield.md)
+    - [yield/yield from](/aysnc_/python-yield.md)
     - [eventloop-future](/aysnc_/eventloop-futures.md)
 - WSGI
     - [python原生WSGI](/WSGI/1-python%E5%8E%9F%E7%94%9F%E7%9A%84wsgi%E6%A8%A1%E5%9D%97.md)

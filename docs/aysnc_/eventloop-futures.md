@@ -482,6 +482,42 @@ class BaseEventLoop(events.AbstractEventLoop):
 - *_scheduled*,*_ready*中存放的并非异步任务，而是对应的回调函数，回调函数会被封装成*handle*对象(asyncio.event.py)
 - 所有的有异步任务都会通过*_asyncgen_firstiter_hook*方法添加到*_asyncgens*属性里面
 
+#### 添加事件监听
+- call_later(self, delay, callback, *args, context=None):   
+需要延迟执行的对应的callback回调.delay为延迟多少秒执行.会被添加到*loop._scheduled*队列.*asyncio.sleep*的实现方式就是调用了call_later. 
+
+```python
+
+async def sleep(delay, result=None, *, loop=None):
+    """Coroutine that completes after a given time (in seconds)."""
+    if delay <= 0:
+        await __sleep0()
+        return result
+
+    if loop is None:
+        loop = events.get_running_loop()
+    else:
+        warnings.warn("The loop argument is deprecated since Python 3.8, ""and scheduled for removal in Python 3.10.",
+                      DeprecationWarning, stacklevel=2)
+    future = loop.create_future()
+    # 延迟执行，添加到 loop._scheduled 队列
+    h = loop.call_later(delay,
+                        futures._set_result_unless_cancelled,
+                        future, result)
+    # print(">>> ready",loop._ready,">>> scheduled",loop._scheduled)
+    try:
+        # 等到执行完成,
+        return await future
+    finally:
+        h.cancel()
+```
+
+- call_soon 
+
+马上执行，调用*call_soon*会把回调添加到*loop._ready*队列，会在下次遍历*_ready*时马上去执行.
+
+
+
 ##### loop.run_forever()
 
 ```python
@@ -625,7 +661,7 @@ class BaseEventLoop(events.AbstractEventLoop):
 run_forever其实就是不断去运行*run_once*，先检测*_scheduled*中需要执行的任务添加到*_ready*.接着selectIO模型对异步任务进行调用(`event_list = self._selector.select(timeout)self._process_events(event_list)`)，最后执行*_ready*中待执行的callback.
 
 #### selectEventLoop
-*selectEventLoop*是基于SELECT IO模型的事件循环,主要用来*selector高级库*.集成于*BaseEventLoop*.直接看源码注释
+*selectEventLoop*是基于SELECT IO模型的事件循环,主要用来*selector高级库*.继承于*BaseEventLoop*.直接看源码注释
 ```python
 ## asyncio.selector_event.py
 class BaseSelectorEventLoop(base_events.BaseEventLoop):
@@ -698,9 +734,9 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
     
 ```
 主要看*_add_reader*,*_add_writer*,*_process_events*3个函数.由*baseEventLoop*的代码可以知道,loop每次循环的时候,会运行`event_list = self._selector.select(timeout)self._process_events(event_list)`.对于*selectEventLoop*来说。就是调用select.Select,得到可读/写的文件IO事件列表，如果取消,则从selector中注销，否则接着调用*_add_callback*,把该任务的回调添加到loop的*_ready*里面去执行.
-- *_add_reader*,*_add_writer*,就是注册监听一个文件I/O的状态,loop会监听对应的事件并进行过相应的回调处理
+- *_add_reader*,*_add_writer*,就是注册监听一个文件I/O的状态,loop会监听对应的事件并进行过相应的回调处理。
 - 注意I/O操作是在内核中执行的，用户态这边只是负责接收I/O的状态并执行回调.
-- 总的来说,大致的逻辑就是当遇到一个I/O任务时,先往*eventloop*注册一个事件回调.当内核IO完成时,触发回调.*eventloop*再完成回调函数的逻辑
+- 总的来说,大致的逻辑就是当遇到一个I/O任务时,先往*eventloop*注册一个事件回调.当内核IO完成时,触发回调.*eventloop*再完成回调函数的逻辑。
 
 
 #### IOCPEventLoop
@@ -711,10 +747,26 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
 -  result():返回 Future 的结果。如果 Future 状态为 完成 ，并由 set_result() 方法设置一个结果（task的返回值），则返回这个结果。如果 Future 状态为完成 ，并由set_exception()方法设置一个异常(task运行异常)，那么这个方法会引发异常。如果Future已取消，方法会引发一个 CancelledError 异常。如果 Future 的结果还不可用，此方法会引发一个InvalidStateError异常。
 - 与*concurrent.futures.Future*类不同,asyncio.Future为可等待的对象*await future*
 
+## await future
+等待future执行完成.即*self._state*的状态为*finish*  
+
+```python
+## future __await__
+
+def __await__(self):
+    if not self.done():
+        self._asyncio_future_blocking = True
+        yield self  # This tells Task to wait for completion.下次还是调用的 self.__await__
+    if not self.done():
+        raise RuntimeError("await wasn't used with future")
+    return self.result()  # May raise too.
+
 ```
+*await*其实就是相当于*yield from*.即在迭代器停止前会不断去迭代。具体可参考*yield from*的[伪代码逻辑](/docs/aysnc_/python-yield.md).
+
+## future结束的流程
 
 
-```
 
 ## task
 task是对*协程*多加了一层封装.继承了*asyncio.futures*,通过方法*__step()*方法驱动*协程*的运行,直接看源码

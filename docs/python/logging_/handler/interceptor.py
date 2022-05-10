@@ -44,17 +44,44 @@ logger.setLevel(logging.DEBUG)
 # print(messages)
 
 
-from logging import LoggerAdapter
+# from logging import LoggerAdapter
 
-class LoggerInterceptor(LoggerAdapter):
+# class LoggerInterceptor(LoggerAdapter):
 
-    def process(self, msg, kwargs):
-        msg = str(msg)+"i am interceptor"
-        return super().process(msg, kwargs)
+#     def process(self, msg, kwargs):
+#         msg = str(msg)+"i am interceptor"
+#         return super().process(msg, kwargs)
 
-_logger = logging.getLogger(__name__)
-_logger.setLevel(logging.DEBUG)
-_logger.addHandler(logging.StreamHandler())
-logger = LoggerInterceptor(logger=_logger,extra={"extra_option":"Var1"})
-logger.info(">>>>>>>")
+# _logger = logging.getLogger(__name__)
+# _logger.setLevel(logging.DEBUG)
+# _logger.addHandler(logging.StreamHandler())
+# logger = LoggerInterceptor(logger=_logger,extra={"extra_option":"Var1"})
+# logger.info(">>>>>>>")
 
+
+
+############################## 自定义一个日志等级 ##############################
+
+import logging
+NORMAL = 11 ### debug级别为10，只要大于debug的就可以输出
+logging.addLevelName(NORMAL,"NORMAL")
+
+class CustomerLevelLogger(logging.Logger):
+
+    def normal(self, msg, *args, **kwargs):
+        """
+        Log 'msg % args' with severity 'INFO'.
+
+        To pass exception information, use the keyword argument exc_info with
+        a true value, e.g.
+
+        logger.info("Houston, we have a %s", "interesting problem", exc_info=1)
+        """
+        if self.isEnabledFor(NORMAL):
+            self._log(NORMAL, msg, args, **kwargs)
+
+logger = CustomerLevelLogger(name="customerLogger")
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler())
+logger.info(">>> info") 
+logger.normal(">>> normal")

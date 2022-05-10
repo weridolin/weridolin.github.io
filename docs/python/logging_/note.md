@@ -1,5 +1,8 @@
 ## logging 模块几大件
 
+#### record
+*record*是对日志的封装.扩充了*exec_stack_info*,*level*等相关信息.
+
 #### filter
 logging 模块的过滤列表。*logger*的filter是一个列表,只有要记录的*record*不满足过滤的条件.才会最终被处理.直接看源码
 ```python
@@ -474,3 +477,32 @@ logger = LoggerInterceptor(logger=_logger,extra={"extra_option":"Var1"})
 logger.info(">>>>>>>") # >>> >>>>>>>i am interceptor
 
 ```
+
+#### 引入自定义一个日志等级
+如果想要自定义一个日志等级,并且像*logger.info/debug/error*那样调用.可以这样做⬇️:     
+
+```python
+
+import logging
+NORMAL = 11 ### debug级别为10，只要大于debug的就可以输出
+logging.addLevelName(NORMAL,"NORMAL")
+
+class CustomerLevelLogger(logging.Logger):
+
+    def normal(self, msg, *args, **kwargs):
+        if self.isEnabledFor(NORMAL):
+            self._log(NORMAL, msg, args, **kwargs)
+
+logger = CustomerLevelLogger(name="customerLogger")
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler())
+logger.info(">>> info") 
+logger.normal(">>> normal")
+
+# 输出
+>>> info
+>>> normal
+
+```
+- 根据需求自定义一个日志等级(int).并继承原生*logger*,补充上对应的*logger.level*即可.
+- 自定义日志等级时,必须调用*addLevelName*添加到logging的全局字典里面.

@@ -266,9 +266,11 @@ class Handler(Filterer):
     ### 
 
 ```
+
 - 默认的handler是先进行*filter*过滤，如果不满足过滤的条件。则调用*emit*进行
 - 自定义*handler*只需要实现了*emit*方法即可。
 - 一个自定义的*handler*如下
+
 ```python
 
 
@@ -288,9 +290,8 @@ class RequestsHandler(logging.Handler):
 handler = RequestsHandler()
 logger.addHandler(handler) # 只需要定义一个handler并添加到logger即可
 
-logger.info(">>> iiiiiiiiii")
+logger.info(">>> iiiiiiiiii")# >>>  deal message >>> iiiiiiiiii
 
->>>  deal message >>> iiiiiiiiii
 
 ```
 #####  自定义一个循环文件logging handler

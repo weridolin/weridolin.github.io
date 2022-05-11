@@ -5,6 +5,7 @@
 - async
     - [yield/yield from](/aysnc_/python-yield.md)
     - [eventloop-future](/aysnc_/eventloop-futures.md)
+    - [基于eventloop的延迟队列](/aysnc_/%E5%9F%BA%E4%BA%8Eeventloop%E7%9A%84%E5%BB%B6%E8%BF%9F%E9%98%9F%E5%88%97.md)
 
 - WSGI
     - [python原生WSGI](/WSGI/1-python%E5%8E%9F%E7%94%9F%E7%9A%84wsgi%E6%A8%A1%E5%9D%97.md)

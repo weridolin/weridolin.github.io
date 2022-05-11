@@ -1,6 +1,7 @@
 - python
     - [selectors](/python/selectors_/selectors.md)
     - [logging](/python/logging_/note.md)
+    - [threadPool](/pool/threadPool.md)
 
 - async
     - [yield/yield from](/aysnc_/python-yield.md)

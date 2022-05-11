@@ -7,16 +7,7 @@ http是位于应用层的协议,由*socket*部分我们可以知道端到端通�
 
 ### http request
 http的request 报文由3部分组成.
-
-```flow
-
-st=>operation:  request 请求行
-middle=>operation: request 请求头   
-break=>operation: 回车符换行符\n\r
-op1=>operation: 请求数据
-st->middle->break->op1
-
-```
+![](httpRequest.png)
 
 #### 请求行
 ```

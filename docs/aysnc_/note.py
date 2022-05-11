@@ -85,16 +85,16 @@ import logging
 
 ################################# asyncio #############################333
 
-import asyncio
-loop  = asyncio.get_event_loop()
-loop.run_in_executor
-print(loop)
-async def mock_sleep():
-    for i in range(10):
-        print(">>>> 第{i}次执行")
-        # print(">>> ready",loop._ready,">>> scheduled",loop._scheduled)
-        await asyncio.sleep(1)
+# import asyncio
+# loop  = asyncio.get_event_loop()
+# loop.run_in_executor
+# print(loop)
+# async def mock_sleep():
+#     for i in range(10):
+#         print(">>>> 第{i}次执行")
+#         # print(">>> ready",loop._ready,">>> scheduled",loop._scheduled)
+#         await asyncio.sleep(1)
 
-if __name__=="__main__":
-    asyncio.run(mock_sleep())
+# if __name__=="__main__":
+    # asyncio.run(mock_sleep())
     

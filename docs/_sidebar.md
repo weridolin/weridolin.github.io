@@ -1,9 +1,11 @@
 - python
     - [selectors](/python/selectors_/selectors.md)
     - [logging](/python/logging_/note.md)
+
 - async
     - [yield/yield from](/aysnc_/python-yield.md)
     - [eventloop-future](/aysnc_/eventloop-futures.md)
+
 - WSGI
     - [python原生WSGI](/WSGI/1-python%E5%8E%9F%E7%94%9F%E7%9A%84wsgi%E6%A8%A1%E5%9D%97.md)
     - [Werkzeug-WSGI](/WSGI/2-Werkzeug-WSGI.md)
@@ -15,7 +17,6 @@
     - [select模型](/sockets/select%E6%A8%A1%E5%9E%8B.md)
     - [epoll模型](/sockets/epoll%E6%A8%A1%E5%9E%8B.md)
     - [shutdown和close](/sockets/shutdown%E5%92%8Cclose.md)
-
 
     
 - 网络协议

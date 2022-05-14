@@ -1,5 +1,6 @@
 
 # from inspect import getgeneratorstate
+from concurrent.futures import ProcessPoolExecutor
 # class StopException(Exception):pass
 import logging
 # def count():
@@ -98,3 +99,13 @@ import logging
 # if __name__=="__main__":
     # asyncio.run(mock_sleep())
     
+
+###################################### multiple process pip
+import multiprocessing as mp
+import time
+
+writer,reader = mp.Pipe(duplex=True)
+while True:
+    writer.send_bytes(b"hello")
+    print(reader.recv_bytes(maxlength=1024))
+    time.sleep(2)

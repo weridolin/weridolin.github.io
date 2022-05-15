@@ -379,7 +379,7 @@ class _ExecutorManagerThread(threading.Thread):
                 self.join_executor_internals()
                 return 
         else:
-            ## 否则把result 设置会future
+            ## 否则把result设置会future
             # Received a _ResultItem so mark the future as completed.
             work_item = self.pending_work_items.pop(result_item.work_id, None)
             # work_item can be None if another process terminated (see above)
@@ -445,6 +445,7 @@ class _ExecutorManagerThread(threading.Thread):
             executor._shutdown_thread = True
             # Cancel pending work items if requested.
             if executor._cancel_pending_futures:
+                # 把还未运行的task从pending_work_items中去除
                 # Cancel all pending futures and update pending_work_items
                 # to only have futures that are currently running.
                 new_pending_work_items = {}
@@ -464,6 +465,7 @@ class _ExecutorManagerThread(threading.Thread):
                 executor._cancel_pending_futures = False
 
     def shutdown_workers(self):
+        ### 停止所有的worker.通过向call_queue发送None
         n_children_to_stop = self.get_n_children_alive()
         n_sentinels_sent = 0
         # Send the right number of sentinels, to make sure all children are

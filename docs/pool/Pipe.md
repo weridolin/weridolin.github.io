@@ -156,3 +156,60 @@ class Popen():
 - 命名管道提供了多个进程之间的双向数据流。
 - 有所有权和读写权限的控制
 
+
+#### mutipleProcess.PIPE
+multiprocessing.pipe是一个命名管道，其主要是由父进程创建了一个，然后等待多个子进程连接。直接看源码：⬇️
+```pythton
+
+    def Pipe(duplex=True):
+        '''
+        Returns pair of connection objects at either end of a pipe
+        '''
+        address = arbitrary_address('AF_PIPE')
+        if duplex:
+            openmode = _winapi.PIPE_ACCESS_DUPLEX
+            access = _winapi.GENERIC_READ | _winapi.GENERIC_WRITE
+            obsize, ibsize = BUFSIZE, BUFSIZE
+        else:
+            openmode = _winapi.PIPE_ACCESS_INBOUND
+            access = _winapi.GENERIC_WRITE
+            obsize, ibsize = 0, BUFSIZE
+
+        ## 创建一个命名管道
+        h1 = _winapi.CreateNamedPipe(
+            address, openmode | _winapi.FILE_FLAG_OVERLAPPED |
+            _winapi.FILE_FLAG_FIRST_PIPE_INSTANCE,
+            _winapi.PIPE_TYPE_MESSAGE | _winapi.PIPE_READMODE_MESSAGE |
+            _winapi.PIPE_WAIT,
+            1, obsize, ibsize, _winapi.NMPWAIT_WAIT_FOREVER,
+            # default security descriptor: the handle cannot be inherited
+            _winapi.NULL
+            )
+        
+        ## 创建一个客户端，连接到路径为address的刚刚建立的管道连接，这里返回的还是句柄 
+        h2 = _winapi.CreateFile(
+            address, access, 0, _winapi.NULL, _winapi.OPEN_EXISTING,
+            _winapi.FILE_FLAG_OVERLAPPED, _winapi.NULL
+            )
+        _winapi.SetNamedPipeHandleState(
+            h2, _winapi.PIPE_READMODE_MESSAGE, None, None
+            )
+
+        ## 命名管道h1等待客户端的连接
+        overlapped = _winapi.ConnectNamedPipe(h1, overlapped=True)
+
+        _, err = overlapped.GetOverlappedResult(True)
+        assert err == 0 ## 进入等待状态
+        ### 连接的同一个pipe
+        c1 = PipeConnection(h1, writable=duplex)
+        c2 = PipeConnection(h2, readable=duplex)
+
+        return c1, c2
+
+class PipeConnection
+
+```
+- 1. 按照命名管道的创建逻辑。先调用*CreateNamedPipe*，创建一个命名管道。并指定管道文件地址，管道模式等相关参数。
+- 2. 再创建一个连接客户端,指定连接到打开刚刚创建的PIPE(根据address参数,命名管道会在本地生成一个文件)
+- 3. 调用*ConnectNamedPipe*,命名管道h1等待客户端的连接。
+- 4. 客户端连接连接后,调用WriteFile() 打开管道并向管道中写入一段数据，调用ReadFile可以从管道中读取一段数据.

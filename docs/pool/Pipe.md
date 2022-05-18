@@ -155,6 +155,7 @@ class Popen():
 - 命名管道可以让多个客户端同时连接使用
 - 命名管道提供了多个进程之间的双向数据流。
 - 有所有权和读写权限的控制
+- 命名管道支持异步I/O
 
 
 #### mutipleProcess.PIPE
@@ -212,4 +213,60 @@ class PipeConnection
 - 1. 按照命名管道的创建逻辑。先调用*CreateNamedPipe*，创建一个命名管道。并指定管道文件地址，管道模式等相关参数。
 - 2. 再创建一个连接客户端,指定连接到打开刚刚创建的PIPE(根据address参数,命名管道会在本地生成一个文件)
 - 3. 调用*ConnectNamedPipe*,命名管道h1等待客户端的连接。
-- 4. 客户端连接连接后,调用WriteFile() 打开管道并向管道中写入一段数据，调用ReadFile可以从管道中读取一段数据.
+- 4. 客户端连接连接后,调用WriteFile()打开管道并向管道中写入一段数据，调用ReadFile可以从管道中读取一段数据.
+
+###### CreateNamedPipe 参数说明
+```text
+
+/* 创建命名管道 */
+HANDLE WINAPI CreateNamedPipe(
+  /**
+  * 管道名称。
+  * 形式：\\.\pipe\pipename。
+  * 最长256个字符，且不区分大小写。
+  * 如果已有同名管道，则创建该管道的新实例。
+  */
+  LPCTSTR lpName, 
+  /**
+   * 管道打开方式。
+   * 常用的管道打开方式有以下三种，更多请查阅MSDN：
+   * PIPE_ACCESS_DUPLEX：该管道是双向的，服务器和客户端进程都可以从管道读取或者向管道写入数据。
+   * PIPE_ACCESS_INBOUND：该管道中数据是从客户端流向服务端，即客户端只能写，服务端只能读。
+   * PIPE_ACCESS_OUTBOUND：该管道中数据是从服务端流向客户端，即客户端只能读，服务端只能写。
+  */
+  DWORD dwOpenMode,
+  /**
+   * 管道模式。
+   * 常用的管道模式如下，更多请查阅MSDN：
+   * PIPE_TYPE_BYTE：数据作为一个连续的字节数据流写入管道。
+   * PIPE_TYPE_MESSAGE：数据用数据块（名为“消息”或“报文”）的形式写入管道。
+   * PIPE_READMODE_BYTE：数据以单独字节的形式从管道中读出。
+   * PIPE_READMODE_MESSAGE：数据以名为“消息”的数据块形式从管道中读出（要求指定PIPE_TYPE_MESSAGE）。
+   * PIPE_WAIT：同步操作在等待的时候挂起线程。
+   * PIPE_NOWAIT：同步操作立即返回。
+  */
+  DWORD dwPipeMode,
+  /**
+   * 该管道能创建的最大实例数。
+   * 必须大于1，小于PIPE_UNLIMITED_INSTANCES(255)。
+  */
+  DWORD nMaxInstances,
+  DWORD nOutBufferSize,  // 管道输出缓冲区容量，设置0时使用默认大小,python里面为
+  DWORD nInBufferSize,   // 管道输入缓冲区容量，设置0时使用默认大小
+  DWORD nDefaultTimeOut, // 管道默认等待超时
+  LPSECURITY_ATTRIBUTES lpSecurityAttributes // 管道的安全属性
+);
+
+```
+
+##### ConnectNamedPipe参数  
+```text
+
+/* 等待客户端连接命名管道 */
+BOOL WINAPI ConnectNamedPipe(
+  HANDLE hNamedPipe,         // 命名管道的句柄
+  LPOVERLAPPED lpOverlapped  // 指向 OVERLAPPED 结构的指针，一般置为NULL即可
+);
+
+
+```

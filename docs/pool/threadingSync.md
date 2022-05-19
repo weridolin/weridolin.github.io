@@ -1,3 +1,120 @@
+### threading.Lock
+threading.lock是最原生的一个线程同步的方法,调用*acquire*时获取锁.调用*release*时释放锁.同个线程调用*acquire*后，必须调用*release*才能再次去*acquire*。
+#### threading.RLock
+threading.RLock是对原生的lock的改进。主要是支持同个线程同时对同个*lock*调用*acquire*.同时释放的话也要调用多次(调用了多少次*acquire*就要调用多少次*release*).
+```python
+class _RLock:
+    """This class implements reentrant lock objects.
+
+    A reentrant lock must be released by the thread that acquired it. Once a
+    thread has acquired a reentrant lock, the same thread may acquire it
+    again without blocking; the thread must release it once for each time it
+    has acquired it.
+
+    """
+
+    def __init__(self):
+        self._block = _allocate_lock()
+        self._owner = None
+        self._count = 0
+
+    def __repr__(self):
+        owner = self._owner
+        try:
+            owner = _active[owner].name
+        except KeyError:
+            pass
+        return "<%s %s.%s object owner=%r count=%d at %s>" % (
+            "locked" if self._block.locked() else "unlocked",
+            self.__class__.__module__,
+            self.__class__.__qualname__,
+            owner,
+            self._count,
+            hex(id(self))
+        )
+
+    def _at_fork_reinit(self):
+        self._block._at_fork_reinit()
+        self._owner = None
+        self._count = 0
+
+    def acquire(self, blocking=True, timeout=-1):
+        """Acquire a lock, blocking or non-blocking.
+
+        When invoked without arguments: if this thread already owns the lock,
+        increment the recursion level by one, and return immediately. Otherwise,
+        if another thread owns the lock, block until the lock is unlocked. Once
+        the lock is unlocked (not owned by any thread), then grab ownership, set
+        the recursion level to one, and return. If more than one thread is
+        blocked waiting until the lock is unlocked, only one at a time will be
+        able to grab ownership of the lock. There is no return value in this
+        case.
+
+        When invoked with the blocking argument set to true, do the same thing
+        as when called without arguments, and return true.
+
+        When invoked with the blocking argument set to false, do not block. If a
+        call without an argument would block, return false immediately;
+        otherwise, do the same thing as when called without arguments, and
+        return true.
+
+        When invoked with the floating-point timeout argument set to a positive
+        value, block for at most the number of seconds specified by timeout
+        and as long as the lock cannot be acquired.  Return true if the lock has
+        been acquired, false if the timeout has elapsed.
+
+        """
+        me = get_ident()
+        if self._owner == me:
+            ### 同个线程调用了acquire,用count记录了同个线程调用了多少次
+            self._count += 1
+            return 1
+        ### 当前LOCKER的拥有者不是该线程而是其他线程
+        rc = self._block.acquire(blocking, timeout)
+        if rc:
+            self._owner = me
+            self._count = 1
+        return rc
+
+    __enter__ = acquire
+
+    def release(self):
+        """Release a lock, decrementing the recursion level.
+
+        If after the decrement it is zero, reset the lock to unlocked (not owned
+        by any thread), and if any other threads are blocked waiting for the
+        lock to become unlocked, allow exactly one of them to proceed. If after
+        the decrement the recursion level is still nonzero, the lock remains
+        locked and owned by the calling thread.
+
+        Only call this method when the calling thread owns the lock. A
+        RuntimeError is raised if this method is called when the lock is
+        unlocked.
+
+        There is no return value.
+
+        """
+        if self._owner != get_ident():
+            ## 只能调用了 acquire的线程去 release.不能跨线程去release
+            raise RuntimeError("cannot release un-acquired lock")
+        self._count = count = self._count - 1
+        if not count:
+            self._owner = None
+            self._block.release()
+
+    def __exit__(self, t, v, tb):
+        self.release()
+
+
+    def _is_owned(self):
+        return self._owner == get_ident()
+
+```
+- RLock在内部通过count变量来记录同个线程调用的次数,只要是同个线程，可以多次调用*acquire*。但释放时也要多次调用*release*
+- Rlock不是线程安全的，即只能在同个线程去*acquire*和*release*
+- Lock可以跨线程去*acquire*和*release*
+
+
 ### threading.Condition
 threading.Condition是用来做线程同步的一种方式，其支持条件触发的方式去对多个线程做同步。比如线程B在满足条件A后才激活，就可以用condition来做同步:⬇️        
 ```python
@@ -262,3 +379,106 @@ get condition <Thread(Thread-4, started 8312)> beign to wait
 
 
 ```
+
+### threading.Semaphore
+Semaphore信号量也是用来做线程同步的一种方式.先直接看源码:⬇️
+
+```python
+class Semaphore:
+    """This class implements semaphore objects.
+
+    Semaphores manage a counter representing the number of release() calls minus
+    the number of acquire() calls, plus an initial value. The acquire() method
+    blocks if necessary until it can return without making the counter
+    negative. If not given, value defaults to 1.
+
+    """
+
+    # After Tim Peters' semaphore class, but not quite the same (no maximum)
+
+    ## 默认信号量为1，即只允许一个线程去去执行。
+    def __init__(self, value=1):
+        if value < 0:
+            raise ValueError("semaphore initial value must be >= 0")
+        self._cond = Condition(Lock())
+        self._value = value
+
+    def acquire(self, blocking=True, timeout=None):
+        """Acquire a semaphore, decrementing the internal counter by one.
+
+        When invoked without arguments: if the internal counter is larger than
+        zero on entry, decrement it by one and return immediately. If it is zero
+        on entry, block, waiting until some other thread has called release() to
+        make it larger than zero. This is done with proper interlocking so that
+        if multiple acquire() calls are blocked, release() will wake exactly one
+        of them up. The implementation may pick one at random, so the order in
+        which blocked threads are awakened should not be relied on. There is no
+        return value in this case.
+
+        When invoked with blocking set to true, do the same thing as when called
+        without arguments, and return true.
+
+        When invoked with blocking set to false, do not block. If a call without
+        an argument would block, return false immediately; otherwise, do the
+        same thing as when called without arguments, and return true.
+
+        When invoked with a timeout other than None, it will block for at
+        most timeout seconds.  If acquire does not complete successfully in
+        that interval, return false.  Return true otherwise.
+
+        """
+        if not blocking and timeout is not None:
+            raise ValueError("can't specify timeout for non-blocking acquire")
+        rc = False
+        endtime = None
+        with self._cond:
+            while self._value == 0:
+                if not blocking:
+                    break
+                if timeout is not None:
+                    if endtime is None:
+                        endtime = _time() + timeout
+                    else:
+                        timeout = endtime - _time()
+                        if timeout <= 0:
+                            break
+                ## value为0,获取不到信号量，直接进入wait状态
+                self._cond.wait(timeout)
+            else:
+                # 否则获得执行权,可执行的信号量减一
+                self._value -= 1
+                rc = True
+        return rc
+
+    __enter__ = acquire
+
+    def release(self, n=1):
+        """Release a semaphore, incrementing the internal counter by one or more.
+
+        When the counter is zero on entry and another thread is waiting for it
+        to become larger than zero again, wake up that thread.
+
+        """
+        if n < 1:
+            raise ValueError('n must be one or more')
+        with self._cond:
+            self._value += n
+            for i in range(n):
+                self._cond.notify()
+
+    def __exit__(self, t, v, tb):
+        self.release()
+
+
+```
+
+- Semaphore 实际上也是在内部维护了一个condition对象。并通过内置的_value属性来控制同时允许运行的线程的最大数量。
+- 调用Semaphore.acquire时,先判断当前信号量的值是否为0，不为0的话直接获得执行权，为0的话调用内部的con.wait()获得内部锁.进入等待状态。
+- 调用Semaphore.release,释放信号量，修改value值，同时将因为获取不到信号量而进入con.wait的线程唤醒。
+
+
+
+### 关于多个线程同时竞争Lock/condition/semaphore的问题
+- 如果是多个线程同时竞争同一个*Lock/condition/semaphore*,如果有con/sem释放时,则遵循先来先到原则.先进入_waiters队列的先获取到释放的锁。比如按照时间顺序先后A,B,C分别等待同个*con/sem*。如果此时满足条件，则A会优先获得该释放的锁.如果是调用了*con.wait_for(predict)*去等待,而*predict()*返回False的情况,则此时A会再次去调用con.wait().添加到*con._waiters*的队列的尾部.当下次再有锁释放时,则B会优先获得执行权。
+- 如果要在一个线程*acquire*.在另外一个线程*release*。只能用原生*lock*(*condition*初始化可以自定义lock类型),不能用*Rlock*。
+- semaphore内部用的原生的Lock，也是线程安全的

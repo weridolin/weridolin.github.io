@@ -4,6 +4,7 @@
     - [threadPool](/pool/threadPool.md)
     - [processPool](/pool/_processPool.md)
     - [PIPE](/pool/Pipe.md)
+    - [线程同步](/pool/threadingSync.md)
 - async
     - [yield/yield from](/aysnc_/python-yield.md)
     - [eventloop-future](/aysnc_/eventloop-futures.md)

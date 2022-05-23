@@ -1,0 +1,23 @@
+/*
+    this is a comment or description about ur proto
+*/
+syntax = "proto3";
+message sendMessage{
+    string name = 1;
+    int32 interger = 2; // interger with 4 bytes 
+    int64 interger = 3;
+    enum EnumMap {
+        option allow_alias=true; //允许多个枚举值对应同一个枚举常量
+        before = 0;
+        start = 1;
+        running = 1;
+    }
+    EnumMap state = 4; // 默认为 EnumMap[0]
+    customMessage result = 5;
+}
+
+message customMessage {
+    int32 status = 1;
+    string err_msg = 2;
+    string data = 3;
+}

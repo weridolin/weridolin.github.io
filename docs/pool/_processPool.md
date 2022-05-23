@@ -712,3 +712,376 @@ def Pipe(duplex=True):
 ```
 
 - 关于管道相关的，可以参考[PiPe](./Pipe.md).总的来说。*simple pipe*就是创建一个命名管道PIPE.然后从作为参数传递给个worker.各个worker把结果通过PIPE中的writer写入到PIPE中,主进程中间管理线程(_ExecutorManagerThread)再调用PIPE中的reader把结果从PIPE中读取出来
+
+
+### call_queue
+call queue本质上也是对PIPE的一个封装.其在同一个时刻内每个PIPE最多只会有(process_workers_count+1)个消息。在mutilprocessing里面源码如下:⬇️
+
+```python
+class Queue(object):
+
+    def __init__(self, maxsize=0, *, ctx):
+        if maxsize <= 0:
+            # Can raise ImportError (see issues #3770 and #23400)
+            from .synchronize import SEM_VALUE_MAX as maxsize
+        self._maxsize = maxsize
+        ## 创建一个单向PIPE，数据只能从 writer ---> reader
+        self._reader, self._writer = connection.Pipe(duplex=False)
+        ## 创建一个线程安全的互斥锁
+        self._rlock = ctx.Lock()
+        ## 获取QUEUE创建时对应的进程ID
+        self._opid = os.getpid()
+        if sys.platform == 'win32':
+            self._wlock = None
+        else:
+            self._wlock = ctx.Lock()
+        ## 创建一个同步信号，表示能否往PIPE里面PUT消息，保证PIPE里面最多会有 *(max_worker+1)*个消息
+        self._sem = ctx.BoundedSemaphore(maxsize)
+        # For use by concurrent.futures
+        self._ignore_epipe = False
+        self._reset()
+
+        if sys.platform != 'win32':
+            register_after_fork(self, Queue._after_fork)
+
+    def __getstate__(self):
+        context.assert_spawning(self)
+        return (self._ignore_epipe, self._maxsize, self._reader, self._writer,
+                self._rlock, self._wlock, self._sem, self._opid)
+
+    def __setstate__(self, state):
+        (self._ignore_epipe, self._maxsize, self._reader, self._writer,
+         self._rlock, self._wlock, self._sem, self._opid) = state
+        self._reset()
+
+    def _after_fork(self):
+        debug('Queue._after_fork()')
+        self._reset(after_fork=True)
+
+    def _reset(self, after_fork=False):
+        if after_fork:
+            self._notempty._at_fork_reinit()
+        else:
+            ## 创建一个条件同步变量，只有notempty状态下获得执行权
+            self._notempty = threading.Condition(threading.Lock())
+        ## 创建一个缓存双向队列
+        self._buffer = collections.deque()
+        self._thread = None
+        self._jointhread = None
+        self._joincancelled = False
+        self._closed = False
+        self._close = None
+        ## 对内部创建的PIPE的读写方法
+        self._send_bytes = self._writer.send_bytes
+        self._recv_bytes = self._reader.recv_bytes
+        self._poll = self._reader.poll
+
+    def put(self, obj, block=True, timeout=None):
+        if self._closed:
+            raise ValueError(f"Queue {self!r} is closed")
+        if not self._sem.acquire(block, timeout):
+            ### get 会 release()
+            raise Full
+
+        with self._notempty:
+            if self._thread is None:
+                self._start_thread() # 消息添加到queue后会被feed线程发送到PIPE里面
+            self._buffer.append(obj) ## 实际queue里面添加消息,后会被feed线程发送到PIPE里面,process worker会再去读取整个call item
+            self._notempty.notify()  ## 激活因为 _notempty 而等待的线程
+
+    def get(self, block=True, timeout=None):
+        ## 从PIPE获取一个消息
+        if self._closed:
+            raise ValueError(f"Queue {self!r} is closed")
+        if block and timeout is None:
+            with self._rlock:
+                ## 从PIPE读取消息
+                res = self._recv_bytes()
+            ## sem 释放一个信号量,表示queue此时有一个信息
+            self._sem.release()
+        else:
+            if block:
+                deadline = time.monotonic() + timeout
+            if not self._rlock.acquire(block, timeout):
+                raise Empty
+            try:
+                if block:
+                    timeout = deadline - time.monotonic()
+                    if not self._poll(timeout):
+                        raise Empty
+                elif not self._poll():
+                    raise Empty
+                res = self._recv_bytes() # 从PIPE中活到一个消息
+                self._sem.release() # 可以往PIPE里面PUT一个消息
+            finally:
+                self._rlock.release()
+        # unserialize the data after having released the lock
+        return _ForkingPickler.loads(res)
+
+    def qsize(self):
+        # Raises NotImplementedError on Mac OSX because of broken sem_getvalue()
+        return self._maxsize - self._sem._semlock._get_value()
+
+    def empty(self):
+        return not self._poll()
+
+    def full(self):
+        return self._sem._semlock._is_zero()
+
+    def get_nowait(self):
+        return self.get(False)
+
+    def put_nowait(self, obj):
+        return self.put(obj, False)
+
+    def close(self):
+        self._closed = True
+        try:
+            self._reader.close()
+        finally:
+            close = self._close
+            if close:
+                self._close = None
+                close()
+
+    def join_thread(self):
+        debug('Queue.join_thread()')
+        assert self._closed, "Queue {0!r} not closed".format(self)
+        if self._jointhread:
+            self._jointhread()
+
+    def cancel_join_thread(self):
+        debug('Queue.cancel_join_thread()')
+        self._joincancelled = True
+        try:
+            self._jointhread.cancel()
+        except AttributeError:
+            pass
+
+    def _start_thread(self):
+        debug('Queue._start_thread()')
+
+        # Start thread which transfers data from buffer to pipe
+        self._buffer.clear()
+        self._thread = threading.Thread(
+            target=Queue._feed,
+            args=(self._buffer, self._notempty, self._send_bytes,
+                self._wlock, self._writer.close, self._ignore_epipe,
+                self._on_queue_feeder_error, self._sem),
+            name='QueueFeederThread'
+        )
+        self._thread.daemon = True
+
+        debug('doing self._thread.start()')
+        self._thread.start()
+        debug('... done self._thread.start()')
+
+        if not self._joincancelled:
+            self._jointhread = Finalize(
+                self._thread, Queue._finalize_join,
+                [weakref.ref(self._thread)],
+                exitpriority=-5
+                )
+
+        # Send sentinel to the thread queue object when garbage collected
+        self._close = Finalize(
+            self, Queue._finalize_close,
+            [self._buffer, self._notempty],
+            exitpriority=10
+            )
+
+    @staticmethod
+    def _finalize_join(twr):
+        debug('joining queue thread')
+        thread = twr()
+        if thread is not None:
+            thread.join()
+            debug('... queue thread joined')
+        else:
+            debug('... queue thread already dead')
+
+    @staticmethod
+    def _finalize_close(buffer, notempty):
+        debug('telling queue thread to quit')
+        with notempty:
+            buffer.append(_sentinel)
+            notempty.notify()
+
+    @staticmethod
+    def _feed(buffer, notempty, send_bytes, writelock, close, ignore_epipe,
+              onerror, queue_sem):
+        ## 把put到buffer(queue)所有的数据转移到pipe里面
+        debug('starting thread to feed data to pipe')
+        nacquire = notempty.acquire
+        nrelease = notempty.release
+        nwait = notempty.wait
+        bpopleft = buffer.popleft
+        sentinel = _sentinel
+        if sys.platform != 'win32':
+            wacquire = writelock.acquire
+            wrelease = writelock.release
+        else:
+            wacquire = None
+
+        while 1:
+            try:
+                nacquire()
+                try:
+                    if not buffer:
+                        # 没有新的元素，进入condition.wait()知道put会调用notify激活
+                        nwait()
+                finally:
+                    # 释放互斥锁
+                    nrelease()
+                try:
+                    while 1:
+                        obj = bpopleft()
+                        if obj is sentinel:
+                            ## 如果queue里面的元素是退出标记
+                            debug('feeder thread got sentinel -- exiting')
+                            close()
+                            return
+
+                        # serialize the data before acquiring the lock
+                        obj = _ForkingPickler.dumps(obj)
+                        # print("put msg to queue",len(obj))
+                        if wacquire is None:
+                            ## 发送到PIPE接收端
+                            send_bytes(obj)
+                        else:
+                            wacquire()
+                            try:
+                                send_bytes(obj)
+                            finally:
+                                wrelease()
+                except IndexError:
+                    pass
+            except Exception as e:
+                if ignore_epipe and getattr(e, 'errno', 0) == errno.EPIPE:
+                    return
+                # Since this runs in a daemon thread the resources it uses
+                # may be become unusable while the process is cleaning up.
+                # We ignore errors which happen after the process has
+                # started to cleanup.
+                if is_exiting():
+                    info('error in queue thread: %s', e)
+                    return
+                else:
+                    # Since the object has not been sent in the queue, we need
+                    # to decrease the size of the queue. The error acts as
+                    # if the object had been silently removed from the queue
+                    # and this step is necessary to have a properly working
+                    # queue.
+                    queue_sem.release()
+                    onerror(e, obj)
+
+    @staticmethod
+    def _on_queue_feeder_error(e, obj):
+        """
+        Private API hook called when feeding data in the background thread
+        raises an exception.  For overriding by concurrent.futures.
+        """
+        import traceback
+        traceback.print_exc()
+```
+- queue 实例化的时候，会创建一个单向流动的PIPE.等价于一个单向流动的list.
+- 信号量_sem用来表示当前可以PIPE的长度,即可以push到queue的item个数
+- 调用queue.put时，就是把call item先缓存到buffer里面.接着会启动一个feed线程.负责把buffer里面的数据写入到pipe。当PIPE的item数量达到(max_process_worker+1)个时，暂时不会增加。
+- 调用queue.get()时,会从PIPE里面读取数据。同时_sem释放+1.表示可以再PUT一个数据到PIPE里面，此时FEED线程就会从buffer里面获取一个call item并push到PIPE里面。
+
+
+### PipeConnection
+call queue本质上使用的是PipeConnection的PIPE作为内部实际存放call item 的数据结构。PipeConnection的源码如下:⬇️    
+```python
+
+
+    class PipeConnection(_ConnectionBase):
+        """
+        Connection class based on a Windows named pipe.
+        Overlapped I/O is used, so the handles must have been created
+        with FILE_FLAG_OVERLAPPED.
+        """
+        _got_empty_message = False
+
+        def _close(self, _CloseHandle=_winapi.CloseHandle):
+            _CloseHandle(self._handle)
+
+        def _send_bytes(self, buf):
+            ov, err = _winapi.WriteFile(self._handle, buf, overlapped=True)
+            try:
+                if err == _winapi.ERROR_IO_PENDING:
+                    ## 表示当前数据还没写完,(overlapped=True是异步的)
+                    waitres = _winapi.WaitForMultipleObjects(
+                        [ov.event], False, INFINITE)
+                    assert waitres == WAIT_OBJECT_0
+            except:
+                ov.cancel()
+                raise
+            finally:
+                nwritten, err = ov.GetOverlappedResult(True)
+            assert err == 0
+            assert nwritten == len(buf)
+
+        def _recv_bytes(self, maxsize=None):
+            if self._got_empty_message:
+                self._got_empty_message = False
+                return io.BytesIO()
+            else:
+                ### 对应进程池来说，每个call item 都会被序列化成128个长度的二进制流,如果带参数则不会
+                bsize = 128 if maxsize is None else min(maxsize, 128)
+                try:
+                    ov, err = _winapi.ReadFile(self._handle, bsize,
+                                                overlapped=True)
+                    try:
+                        if err == _winapi.ERROR_IO_PENDING:
+                            ## 当前数据还没读完,因为是异步的(overlapped=True)
+                            waitres = _winapi.WaitForMultipleObjects(
+                                [ov.event], False, INFINITE)
+                            assert waitres == WAIT_OBJECT_0
+                    except:
+                        ov.cancel()
+                        raise
+                    finally:
+                        nread, err = ov.GetOverlappedResult(True)
+                        if err == 0:
+                            f = io.BytesIO()
+                            f.write(ov.getbuffer())
+                            return f
+                        elif err == _winapi.ERROR_MORE_DATA:
+                            ## 缓冲区大小不足以接收PIPE里面所有的数据，则会抛出这个错
+                            return self._get_more_data(ov, maxsize)
+                except OSError as e:
+                    if e.winerror == _winapi.ERROR_BROKEN_PIPE:
+                        raise EOFError
+                    else:
+                        raise
+            raise RuntimeError("shouldn't get here; expected KeyboardInterrupt")
+
+        def _poll(self, timeout):
+            if (self._got_empty_message or
+                        _winapi.PeekNamedPipe(self._handle)[0] != 0):
+                return True
+            return bool(wait([self], timeout))
+
+        def _get_more_data(self, ov, maxsize):
+            buf = ov.getbuffer()
+            f = io.BytesIO()
+            f.write(buf)
+            ## 从管道内获取剩下的所有数据,这里为什么能够知道每个call item的大小。
+            _,left = _winapi.PeekNamedPipe(self._handle) #
+            # 返回 tuple[int,int]第一个为管道剩余的消息总长度，第二个位该消息的剩余长度
+            print(_,left,">>>>>")
+            assert left > 0
+            if maxsize is not None and len(buf) + left > maxsize:
+                self._bad_message_length()
+            ov, err = _winapi.ReadFile(self._handle, left, overlapped=True)
+            rbytes, err = ov.GetOverlappedResult(True)
+            assert err == 0
+            assert rbytes == left
+            f.write(ov.getbuffer())
+            return f
+
+```
+
+- PipeConnection发送数据调用的*WriteFile*，方法.采用的异步的方式(overlapped=True),实际上如果没发送成功，会调用WaitForMultipleObjects直到收到发送成功事件。
+- 接收数据的话.PIPE实际上调用的*ReadFile*.先去读取128个字节长度的数据(因为对于进程池来说，每个call item用PICKLE去序列化后的最小长度就是128,具体看参数而定).如果item的长度大于128.则会触发*ERROR_MORE_DATA*,此时会再去调用PeekNamedPipe内核方法，返回2个参数，一个PIPE剩余的数据总长度，2个单个数据剩余的长度(todo:这里有个问题未解：为啥能够知道每个ITEM具体的长度呢)？

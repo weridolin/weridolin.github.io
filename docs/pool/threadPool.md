@@ -74,7 +74,7 @@ def _worker(executor_reference, work_queue, initializer, initargs):
                 self = None
             else:
                 self.future.set_result(result)
-
+  
         __class_getitem__ = classmethod(types.GenericAlias)
 
 

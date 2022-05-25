@@ -397,4 +397,4 @@ HANDLE CreateFile(
 - 1. 服务端(创建方)调用 CreateNamedPipe() 创建命名管道并调用 ConnectNamedPipe() 等待客户端连接。
 - 2. 客户端使调用 WaitNamedPipe() / createFile() 连接成功后，再调用 CreateFile() 和 WriteFile() 打开管道并向管道中写入一段数据，即向服务端发送消息。
 - 3. 服务端(创建方)调用 ReadFile() 从管道中读取数据后（即收到消息），再向管道中写入确认信息表明已经收到数据，即通知客户端已收到。
-- 4. 客户端收到确认信息后结束，调用 CloseHandle()关闭管道（该管道是 CreateFile() 打开的）。服务端使用 DisconnectNamedPipe() 和 CloseHandle() 断开连接并关闭管道。
+- 4. 客户端收到确认信息后结束，调用CloseHandle()关闭管道（该管道是 CreateFile() 打开的）。服务端使用 DisconnectNamedPipe() 和 CloseHandle() 断开连接并关闭管道。

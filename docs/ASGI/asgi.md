@@ -387,6 +387,162 @@ class URLRouter:
 
 
 
+#### AsyncHttpConsumer
+AsyncHttpConsumer是channel提供的http协议的封装，正如上面提到的那样，其继承了**AsyncConsumer**，当我们需要实现一个基于**ASGI**网关协议的HTTP接口时，只需要实现对应的handle方法即可,如下:
+```python
+
+### AsyncHttpConsumer 源码
+class AsyncHttpConsumer(AsyncConsumer):
+    """
+    Async HTTP consumer. Provides basic primitives for building asynchronous
+    HTTP endpoints.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.body = []
+
+    async def send_headers(self, *, status=200, headers=None):
+        """
+        Sets the HTTP response status and headers. Headers may be provided as
+        a list of tuples or as a dictionary.
+
+        Note that the ASGI spec requires that the protocol server only starts
+        sending the response to the client after ``self.send_body`` has been
+        called the first time.
+        """
+        if headers is None:
+            headers = []
+        elif isinstance(headers, dict):
+            headers = list(headers.items())
+
+        await self.send(
+            {"type": "http.response.start", "status": status, "headers": headers}
+        )
+
+    async def send_body(self, body, *, more_body=False):
+        """
+        Sends a response body to the client. The method expects a bytestring.
+
+        Set ``more_body=True`` if you want to send more body content later.
+        The default behavior closes the response, and further messages on
+        the channel will be ignored.
+        """
+        assert isinstance(body, bytes), "Body is not bytes"
+        await self.send(
+            {"type": "http.response.body", "body": body, "more_body": more_body}
+        )
+
+    async def send_response(self, status, body, **kwargs):
+        """
+        Sends a response to the client. This is a thin wrapper over
+        ``self.send_headers`` and ``self.send_body``, and everything said
+        above applies here as well. This method may only be called once.
+        """
+        await self.send_headers(status=status, **kwargs)
+        await self.send_body(body)
+
+    async def handle(self, body):
+        """
+        Receives the request body as a bytestring. Response may be composed
+        using the ``self.send*`` methods; the return value of this method is
+        thrown away.
+        """
+        raise NotImplementedError(
+            "Subclasses of AsyncHttpConsumer must provide a handle() method."
+        )
+
+    async def disconnect(self):
+        """
+        Overrideable place to run disconnect handling. Do not send anything
+        from here.
+        """
+        pass
+        ### receive event
+
+    async def http_request(self, message):# 根据WSGI协议会有请求进来 type为 http.request
+        """
+        Async entrypoint - concatenates body fragments and hands off control
+        to ``self.handle`` when the body has been completely received.
+
+
+        """
+        if "body" in message:
+            self.body.append(message["body"])
+        if not message.get("more_body"):
+            try:
+                await self.handle(b"".join(self.body))
+            finally:
+                await self.disconnect()
+                raise StopConsumer()
+
+    async def http_disconnect(self, message):
+        """
+        Let the user do their cleanup and close the consumer.
+        """
+        await self.disconnect()
+        raise StopConsumer()
+
+
+######### 实际使用 
+
+#### 继承AsyncHttpConsumer顶一个consumer
+
+from channels.generic.http import AsyncHttpConsumer
+
+class MyAsyncHttpConsumer(AsyncHttpConsumer):
+  ...
+  async def handle(self, body):
+    print(">>> 处理body",body)
+    await self.send_response(200, b"this is response", 
+      headers=[
+        (b"Content-Type", b"text/plain"),
+    ])
+
+
+
+#### 标准的最基本的asgi-app
+async def async_app(scope,receive,send):
+    print("get scope >>>",scope)
+    event = await receive()
+    print("get event >>>",event)
+    # await asyncio.sleep(10)
+    await send({
+            'type': 'http.response.start',   # 响应头的信息通过这个事件返回，必须发生在body发送之前
+            'status': 200,
+            'headers': [
+                [b'content-type', b'application/json'],
+        ]   # 发送响应体内容事件
+    })
+    await send({
+        'type': 'http.response.body',   # 发送响应体内容事件
+        'body': "response part1".encode("utf-8"),
+        'more_body': True  # 代表后面还有消息要返回
+    })
+    # await asyncio.sleep(3) # 不能使用time.sleep, 会阻塞整个线程
+    await send({
+        'type': 'http.response.body',
+        'body': "response part2".encode("utf-8"),
+        'more_body': False # 已经没有内容了，请求可以结束了
+    })
+    # event = await receive()
+    print("get event >>>",event)
+
+
+### DJANGO 中集成
+application = ProtocolTypeRouter({
+  "http": URLRouter([
+      re_path(r'test',MyAsyncHttpConsumer.as_asgi())]), # 调用了as_asgi(),实际就是返回了一个 app(scope,receive,send)
+    # "http": URLRouter([
+    #   re_path(r'test',async_app)]),
+})
+
+```
+* 这里要要注意,每个**AsyncHttpConsumer**的**handle**必须通过**send_response**来结束该app的调用，这跟wsgi很相似。
+* 实际上,我们跟原生的一个标准**asgi-app**比较一下可以看出,**AsyncHttpConsumer**中的**http_request/send_header/send_body**其实就是按照ASGI-HTTP-PROTOCOL中对应的事件类型抽离出来，等价于receiv/send类型为http.response.start的消息/send类型为http.response.body的消息
+
+
+
+
 我们先通过**uvicorn**这个库来了解从server端到调用asgi-app的调用运行的一个过程。
 
 ```python

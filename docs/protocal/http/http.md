@@ -41,7 +41,7 @@ http的request 报文由3部分组成.
         ############################################## 解析request line,得到method url http version
         self.command = None  # set in case of error on the first line
         self.request_version = version = self.default_request_version
-        self.close_connection = True
+        self.close_connection = True  
         requestline = str(self.raw_requestline, 'iso-8859-1')
         requestline = requestline.rstrip('\r\n') # request line end with \r\n
         self.requestline = requestline

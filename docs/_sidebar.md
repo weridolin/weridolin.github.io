@@ -17,6 +17,10 @@
     - [WSGI中间件](/WSGI/3-WSGI-middleware.md)
     - [DJANGO的中间件设计](/WSGI/django-middleware.md)
 
+- ASGI  
+    - [asgi/django-channel](/ASGI/asgi.md)
+
+
 - sockets
     - [普通阻塞模型](/sockets/%E6%99%AE%E9%80%9A%E9%98%BB%E5%A1%9E.md)
     - [select模型](/sockets/select%E6%A8%A1%E5%9E%8B.md)

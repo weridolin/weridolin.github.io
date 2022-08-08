@@ -485,7 +485,7 @@ class AsyncHttpConsumer(AsyncConsumer):
 
 ######### 实际使用 
 
-#### 继承AsyncHttpConsumer顶一个consumer
+#### 继承AsyncHttpConsumer自定义一个consumer
 
 from channels.generic.http import AsyncHttpConsumer
 
@@ -539,6 +539,415 @@ application = ProtocolTypeRouter({
 ```
 * 这里要要注意,每个**AsyncHttpConsumer**的**handle**必须通过**send_response**来结束该app的调用，这跟wsgi很相似。
 * 实际上,我们跟原生的一个标准**asgi-app**比较一下可以看出,**AsyncHttpConsumer**中的**http_request/send_header/send_body**其实就是按照ASGI-HTTP-PROTOCOL中对应的事件类型抽离出来，等价于receiv/send类型为http.response.start的消息/send类型为http.response.body的消息
+
+
+#### daphne  -- channel对应的serve
+和WSGI一样，除了对应的ASGI-APP外,还必须得有一个对应的ASGI-SERVER.Channel中默认的使用的 daphne作为ASGI-SERVER,实际上当在**settings**中设置的对应的**ASGI_APPLICATION**项后,使用**runserver**，实际上调用的对应的*management/commands/runserver.py*,如下:         
+```python 
+
+### 运行runserver调用的方法，这里只贴几个重要方法
+
+class Command(RunserverCommand):
+    protocol = "http"
+    server_cls = Server
+
+    ...
+
+    def handle(self, *args, **options):
+        self.http_timeout = options.get("http_timeout", None)
+        self.websocket_handshake_timeout = options.get("websocket_handshake_timeout", 5)
+        # Check Channels is installed right
+        if options["use_asgi"] and not hasattr(settings, "ASGI_APPLICATION"):
+            raise CommandError(
+                "You have not set ASGI_APPLICATION, which is needed to run the server."
+            )
+        # Dispatch upward
+        super().handle(*args, **options)
+
+    def inner_run(self, *args, **options):
+        # Maybe they want the wsgi one?
+        if not options.get("use_asgi", True):
+            if hasattr(RunserverCommand, "server_cls"):
+                self.server_cls = RunserverCommand.server_cls
+            return RunserverCommand.inner_run(self, *args, **options)
+
+
+        # Run checks 使用ASGI的情况下
+        self.stdout.write("Performing system checks...\n\n")
+        self.check(display_num_errors=True)
+        self.check_migrations()
+        # Print helpful text
+        quit_command = "CTRL-BREAK" if sys.platform == "win32" else "CONTROL-C"
+        now = datetime.datetime.now().strftime("%B %d, %Y - %X")
+        self.stdout.write(now)
+        self.stdout.write(
+            (
+                "Django version %(version)s, using settings %(settings)r\n"
+                "Starting ASGI/Channels version %(channels_version)s development server"
+                " at %(protocol)s://%(addr)s:%(port)s/\n"
+                "Quit the server with %(quit_command)s.\n"
+            )
+            % {
+                "version": self.get_version(),
+                "channels_version": __version__,
+                "settings": settings.SETTINGS_MODULE,
+                "protocol": self.protocol,
+                "addr": "[%s]" % self.addr if self._raw_ipv6 else self.addr,
+                "port": self.port,
+                "quit_command": quit_command,
+            }
+        )
+
+        # Launch server in 'main' thread. Signals are disabled as it's still
+        # actually a subthread under the autoreloader.
+        logger.debug("Daphne running, listening on %s:%s", self.addr, self.port)
+
+        # build the endpoint description string from host/port options
+        endpoints = build_endpoint_description_strings(host=self.addr, port=self.port)
+        try:
+            ## 这里实际上调用到的是daphne中对应的asgi-server
+            self.server_cls(
+                application=self.get_application(options),
+                endpoints=endpoints,
+                signal_handlers=not options["use_reloader"],
+                action_logger=self.log_action,
+                http_timeout=self.http_timeout,
+                root_path=getattr(settings, "FORCE_SCRIPT_NAME", "") or "",
+                websocket_handshake_timeout=self.websocket_handshake_timeout,
+            ).run()
+
+            logger.debug("Daphne exited")
+        except KeyboardInterrupt:
+            shutdown_message = options.get("shutdown_message", "")
+            if shutdown_message:
+                self.stdout.write(shutdown_message)
+            return
+
+    def get_application(self, options):
+        """
+        Returns the static files serving application wrapping the default application,
+        if static files should be served. Otherwise just returns the default
+        handler.
+        """
+        # get_default_application()就是获取setting里面的 ASGI-APPLICATION配置项
+        staticfiles_installed = apps.is_installed("django.contrib.staticfiles")
+        use_static_handler = options.get("use_static_handler", staticfiles_installed)
+        insecure_serving = options.get("insecure_serving", False)
+        if use_static_handler and (settings.DEBUG or insecure_serving):
+            return StaticFilesWrapper(get_default_application()) 
+        else:
+            return get_default_application()
+
+
+```
+* 从源码可以知道,当使用**django admin runserver**时,实际上会去调用到对应的**daphne定义的一个Serve**.如下：
+
+```python 
+class Server:
+    def __init__(
+        self,
+        application,
+        endpoints=None,
+        signal_handlers=True,
+        action_logger=None,
+        http_timeout=None,
+        request_buffer_size=8192,
+        websocket_timeout=86400,
+        websocket_connect_timeout=20,
+        ping_interval=20,
+        ping_timeout=30,
+        root_path="",
+        proxy_forwarded_address_header=None,
+        proxy_forwarded_port_header=None,
+        proxy_forwarded_proto_header=None,
+        verbosity=1,
+        websocket_handshake_timeout=5,
+        application_close_timeout=10,
+        ready_callable=None,
+        server_name="daphne",
+        # Deprecated and does not work, remove in version 2.2
+        ws_protocols=None,
+    ):
+        self.application = application
+        self.endpoints = endpoints or []
+        self.listeners = []
+        self.listening_addresses = []
+        self.signal_handlers = signal_handlers
+        self.action_logger = action_logger
+        self.http_timeout = http_timeout
+        self.ping_interval = ping_interval
+        self.ping_timeout = ping_timeout
+        self.request_buffer_size = request_buffer_size
+        self.proxy_forwarded_address_header = proxy_forwarded_address_header
+        self.proxy_forwarded_port_header = proxy_forwarded_port_header
+        self.proxy_forwarded_proto_header = proxy_forwarded_proto_header
+        self.websocket_timeout = websocket_timeout
+        self.websocket_connect_timeout = websocket_connect_timeout
+        self.websocket_handshake_timeout = websocket_handshake_timeout
+        self.application_close_timeout = application_close_timeout
+        self.root_path = root_path
+        self.verbosity = verbosity
+        self.abort_start = False
+        self.ready_callable = ready_callable
+        self.server_name = server_name
+        # Check our construction is actually sensible
+        if not self.endpoints:
+            logger.error("No endpoints. This server will not listen on anything.")
+            sys.exit(1)
+
+    def run(self):
+        # A dict of protocol: {"application_instance":, "connected":, "disconnected":} dicts
+        self.connections = {}
+        # Make the factory
+        self.http_factory = HTTPFactory(self)
+        self.ws_factory = WebSocketFactory(self, server=self.server_name)
+        self.ws_factory.setProtocolOptions(
+            autoPingTimeout=self.ping_timeout,
+            allowNullOrigin=True,
+            openHandshakeTimeout=self.websocket_handshake_timeout,
+        )
+        if self.verbosity <= 1:
+            # Redirect the Twisted log to nowhere
+            globalLogBeginner.beginLoggingTo(
+                [lambda _: None], redirectStandardIO=False, discardBuffer=True
+            )
+        else:
+            globalLogBeginner.beginLoggingTo([STDLibLogObserver(__name__)])
+
+        # Detect what Twisted features are enabled
+        if http.H2_ENABLED:
+            logger.info("HTTP/2 support enabled")
+        else:
+            logger.info(
+                "HTTP/2 support not enabled (install the http2 and tls Twisted extras)"
+            )
+
+        # Kick off the timeout loop
+        ## reactor 可以直接看成一个对应的event-loop
+        reactor.callLater(1, self.application_checker)
+        reactor.callLater(2, self.timeout_checker)
+
+        for socket_description in self.endpoints:
+            logger.info("Configuring endpoint %s", socket_description)
+            ep = serverFromString(reactor, str(socket_description))
+            listener = ep.listen(self.http_factory)
+            listener.addCallback(self.listen_success)
+            listener.addErrback(self.listen_error)
+            self.listeners.append(listener)
+
+        # Set the asyncio reactor's event loop as global
+        # TODO: Should we instead pass the global one into the reactor?
+        asyncio.set_event_loop(reactor._asyncioEventloop)
+
+        # Verbosity 3 turns on asyncio debug to find those blocking yields
+        if self.verbosity >= 3:
+            asyncio.get_event_loop().set_debug(True)
+
+        reactor.addSystemEventTrigger("before", "shutdown", self.kill_all_applications)
+        if not self.abort_start:
+            # Trigger the ready flag if we had one
+            if self.ready_callable:
+                self.ready_callable()
+            # Run the reactor
+            reactor.run(installSignalHandlers=self.signal_handlers)
+
+    def listen_success(self, port):
+        """
+        Called when a listen succeeds so we can store port details (if there are any)
+        """
+        if hasattr(port, "getHost"):
+            host = port.getHost()
+            if hasattr(host, "host") and hasattr(host, "port"):
+                self.listening_addresses.append((host.host, host.port))
+                logger.info(
+                    "Listening on TCP address %s:%s",
+                    port.getHost().host,
+                    port.getHost().port,
+                )
+
+    def listen_error(self, failure):
+        logger.critical("Listen failure: %s", failure.getErrorMessage())
+        self.stop()
+
+    def stop(self):
+        """
+        Force-stops the server.
+        """
+        if reactor.running:
+            reactor.stop()
+        else:
+            self.abort_start = True
+
+    ### Protocol handling
+
+    def protocol_connected(self, protocol):
+        """
+        Adds a protocol as a current connection.
+        """
+        if protocol in self.connections:
+            raise RuntimeError("Protocol %r was added to main list twice!" % protocol)
+        self.connections[protocol] = {"connected": time.time()}
+
+    def protocol_disconnected(self, protocol):
+        # Set its disconnected time (the loops will come and clean it up)
+        # Do not set it if it is already set. Overwriting it might
+        # cause it to never be cleaned up.
+        # See https://github.com/django/channels/issues/1181
+        if "disconnected" not in self.connections[protocol]:
+            self.connections[protocol]["disconnected"] = time.time()
+
+    ### Internal event/message handling
+
+    def create_application(self, protocol, scope):
+        """
+        Creates a new application instance that fronts a Protocol instance
+        for one of our supported protocols. Pass it the protocol,
+        and it will work out the type, supply appropriate callables, and
+        return you the application's input queue
+        """
+        # Make sure the protocol has not had another application made for it
+        assert "application_instance" not in self.connections[protocol]
+        # Make an instance of the application
+        input_queue = asyncio.Queue()
+        scope.setdefault("asgi", {"version": "3.0"})
+
+        ### 老方式，调用 asgi-application.__call__,返回一个 future 
+        application_instance = self.application(
+            scope=scope,
+            receive=input_queue.get,# 当server收到HTTP请求时，通过该方法激活 asgi-app
+            send=partial(self.handle_reply, protocol), ## 当asgi-app有返回响应时,通过该方法返回给server
+        )
+        # Run it, and stash the future for later checking
+        if protocol not in self.connections:
+            return None
+        self.connections[protocol]["application_instance"] = asyncio.ensure_future(
+            application_instance,
+            loop=asyncio.get_event_loop(),
+        ) # 这里已经开始运行了 asgi-app,把他扔到事件循环里面去
+
+        ### 返回asgi-app 对应的input-queue。一个已经开始运行的 asgi-app可以当成一个协程,其通过
+        ### 一个queue和server进行交互，当有http-event到来时，会push到 input_queue激活协程并继续运行
+        return input_queue
+
+    async def handle_reply(self, protocol, message):
+        """
+        Coroutine that jumps the reply message from asyncio to Twisted
+        """
+        # Don't do anything if the connection is closed or does not exist
+        if protocol not in self.connections or self.connections[protocol].get(
+            "disconnected", None
+        ):
+            return
+        try:
+            self.check_headers_type(message)
+        except ValueError:
+            # Ensure to send SOME reply.
+            protocol.basic_error(500, b"Server Error", "Server Error")
+            raise
+        # Let the protocol handle it
+        protocol.handle_reply(message)
+
+    @staticmethod
+    def check_headers_type(message):
+        if not message["type"] == "http.response.start":
+            return
+        for k, v in message.get("headers", []):
+            if not isinstance(k, bytes):
+                raise ValueError(
+                    "Header name '{}' expected to be `bytes`, but got `{}`".format(
+                        k, type(k)
+                    )
+                )
+            if not isinstance(v, bytes):
+                raise ValueError(
+                    "Header value '{}' expected to be `bytes`, but got `{}`".format(
+                        v, type(v)
+                    )
+                )
+
+    ### Utility
+
+    def application_checker(self):
+        """
+        Goes through the set of current application Futures and cleans up
+        any that are done/prints exceptions for any that errored.
+        """
+        for protocol, details in list(self.connections.items()):
+            disconnected = details.get("disconnected", None)
+            application_instance = details.get("application_instance", None)
+            # First, see if the protocol disconnected and the app has taken
+            # too long to close up
+            if (
+                disconnected
+                and time.time() - disconnected > self.application_close_timeout
+            ):
+                if application_instance and not application_instance.done():
+                    logger.warning(
+                        "Application instance %r for connection %s took too long to shut down and was killed.",
+                        application_instance,
+                        repr(protocol),
+                    )
+                    application_instance.cancel()
+            # Then see if the app is done and we should reap it
+            if application_instance and application_instance.done():
+                try:
+                    exception = application_instance.exception()
+                except (CancelledError, asyncio.CancelledError):
+                    # Future cancellation. We can ignore this.
+                    pass
+                else:
+                    if exception:
+                        if isinstance(exception, KeyboardInterrupt):
+                            # Protocol is asking the server to exit (likely during test)
+                            self.stop()
+                        else:
+                            logger.error(
+                                "Exception inside application: %s",
+                                exception,
+                                exc_info=exception,
+                            )
+                            if not disconnected:
+                                protocol.handle_exception(exception)
+                del self.connections[protocol]["application_instance"]
+                application_instance = None
+            # Check to see if protocol is closed and app is closed so we can remove it
+            if not application_instance and disconnected:
+                del self.connections[protocol]
+        reactor.callLater(1, self.application_checker)
+
+    def kill_all_applications(self):
+        """
+        Kills all application coroutines before reactor exit.
+        """
+        # Send cancel to all coroutines
+        wait_for = []
+        for details in self.connections.values():
+            application_instance = details["application_instance"]
+            if not application_instance.done():
+                application_instance.cancel()
+                wait_for.append(application_instance)
+        logger.info("Killed %i pending application instances", len(wait_for))
+        # Make Twisted wait until they're all dead
+        wait_deferred = defer.Deferred.fromFuture(asyncio.gather(*wait_for))
+        wait_deferred.addErrback(lambda x: None)
+        return wait_deferred
+
+    def timeout_checker(self):
+        """
+        Called periodically to enforce timeout rules on all connections.
+        Also checks pings at the same time.
+        """
+        for protocol in list(self.connections.keys()):
+            protocol.check_timeouts()
+        reactor.callLater(2, self.timeout_checker)
+
+```
+* Server是创建了一个reactor模式的事件循环来运行的,基于twisted(TODO),当SEVER开始运行的时候,获创建一个事件循环并且不断去监听对应的HTTP事件。
+* 实例化**asgi-application**是通过**create_application**来实现的,当请求到达**SERVER**时,会调用**protocol**中的**process**方法.即就是**app.__call__**,这里有几个比较重要的入参:
+- scope=scope:相当于*wsgi*的*environ*
+- receive=input_queue.get:# 当server收到HTTP请求时，通过该方法激活 asgi-app
+- send=partial(self.handle_reply, protocol): ## 当asgi-app有返回响应时,通过该方法返回给server
+实例化后,*app*其实已经开始运行，并且通过**send/receive**入参跟server交互
 
 
 

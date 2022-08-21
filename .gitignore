@@ -1,3 +1,6 @@
 .history
 docs/migration
 venv/
+docs/redis/appendonlydir/
+docs/redis/*.rdb
+docs/redis/*.conf

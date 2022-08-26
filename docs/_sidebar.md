@@ -32,11 +32,18 @@
     - [http](/protocal/http/http.md)
     - [websocket](/protocal/websocket/ws.md)
 
+- Celery
+
 - 个人项目
+   - [celery-sqlalchemy-beat(todo)]
+
+- 其他
+    - [优先队列](/python/_heap/优先队列.md) 
 
 - 前端  
     - [跨域问题](/front/cors.md)
 
 - devops
     - [uwsgi](/devops/uwsgi/uwsgi.md)
+
 

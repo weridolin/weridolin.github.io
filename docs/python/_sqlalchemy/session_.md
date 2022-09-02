@@ -23,9 +23,51 @@ session.expire()/refresh()会把session中的所有orm对象设置为过期,当�
 ## flush/commit
 session.flush()会把session中的orm对象生成对应SQL,但此时并持久化到数据库，但是会生成对应的自增ID,flush时commit的一部分
 
+## Instance is not bound to a Session
+对应sqlalchemy来说,instance的属性采取的懒加载的方式,即当访问**新建/插入/查询**新纪录的属性时,才会从数据库去查询对应的属性,这种特性决定每个instance实例必须和一个session绑定在一起.当访问一个未跟session绑定的instance中的某些还没加载的属性时，就会提示**Instance is not bound to a Session**的错误。
+
+- 因为flush/commit instance时会instance对应的所有字段设置为过期字段,所以当session释放后,再次访问这个instance中的属性时(比如在另外一个函数中访问).会出现这个错.例如：
+
+```python
+def create_task():
+    tasks=_create() # 拿到 tasks。但是由于session已经被释放,tasks处于未绑定session的状态，此时再去访问其中的属性，
+                    # 会再调用session去从数据库查询对应的属性，就会报 not bound to session的错误
+    print(tasks.name) 
+    return "ok"
+
+
+def _create():
+    session = SessionFactory()
+    # session.expire_on_commit=False
+    schedule = session.query(IntervalSchedule).filter_by(every=1,period=IntervalSchedule.SECONDS).first()
+    if not schedule:
+        schedule = IntervalSchedule(
+            every=1,period=IntervalSchedule.SECONDS
+        )
+        session.add(schedule)
+        # session.flush()
+    tasks=PeriodicTask(
+        interval_id=schedule.id,      # we created this above.
+        name='TestTask1-232',          # simply describes this periodic task.
+        task='core.celery.test_task',  # name of task.
+        args=json.dumps([8]),
+    )
+    session.add(tasks)
+    session.commit() # commit之后，tasks所有字段会被设置为expired 
+
+    return tasks
+
+```
+解决该方法可以参考[官方文档](https://docs.sqlalchemy.org/en/14/errors.html#error-bhk3),简单来说就是如果要在commit之后再其他地方访问,可以不要关闭销毁session,或者将session.session.expire_on_commit设置为false,或者把要访问提前预加载一下,比如在session里面先访问下所有的属性
+
 
 ```python
 
 
 
 ```
+
+## 
+
+## Q&A
+`database is lock`

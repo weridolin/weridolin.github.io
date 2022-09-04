@@ -36,8 +36,8 @@
 
 - 数据库
     - redis
-        - [redis](/docs/redis/cluster.md)
-    -[sqlite](/docs/database/Q%26ARecord/sqlite.md)
+        - [cluster](/redis/cluster.md)
+    -[sqlite](/database/Q%26ARecord/sqlite.md)
 
 - 个人项目
    - [celery-sqlalchemy-beat(todo)]()

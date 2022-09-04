@@ -23,7 +23,7 @@ session.expire()/refresh()会把session中的所有orm对象设置为过期,当�
 ## flush/commit
 session.flush()会把session中的orm对象生成对应SQL,但此时并持久化到数据库，但是会生成对应的自增ID,flush时commit的一部分
 
-## Instance is not bound to a Session
+## Instance is not bound to a Session错误
 对应sqlalchemy来说,instance的属性采取的懒加载的方式,即当访问**新建/插入/查询**新纪录的属性时,才会从数据库去查询对应的属性,这种特性决定每个instance实例必须和一个session绑定在一起.当访问一个未跟session绑定的instance中的某些还没加载的属性时，就会提示**Instance is not bound to a Session**的错误。
 
 - 因为flush/commit instance时会instance对应的所有字段设置为过期字段,所以当session释放后,再次访问这个instance中的属性时(比如在另外一个函数中访问).会出现这个错.例如：
@@ -60,14 +60,51 @@ def _create():
 ```
 解决该方法可以参考[官方文档](https://docs.sqlalchemy.org/en/14/errors.html#error-bhk3),简单来说就是如果要在commit之后再其他地方访问,可以不要关闭销毁session,或者将session.session.expire_on_commit设置为false,或者把要访问提前预加载一下,比如在session里面先访问下所有的属性
 
+## session的线程安全问题
+sqlalchemy的只能在同一个线程里面创建并使用,不能在跨线程使用.
 
 ```python
 
+if __name__=="__main__":
+    import  threading
+    session = SessionFactory()
+    def target(session): # 在线程运用另外一个线程创建的session
+        task = session.query(PeriodicTask).get(2)
+        if task:
+            session.delete(task)
+            session.commit()        
+    t = threading.Thread(target=target,args=(session,))
+    t.start()
+    t.join()
+
+
+>>> 运行，会报线程错误
+
+Traceback (most recent call last):
+  File "d:\code\python\site\werido-site-backend\venv\lib\site-packages\sqlalchemy\pool\base.py", line 739, in _finalize_fairy
+    fairy._reset(pool)
+  File "d:\code\python\site\werido-site-backend\venv\lib\site-packages\sqlalchemy\pool\base.py", line 988, in _reset
+    pool._dialect.do_rollback(self)
+  File "d:\code\python\site\werido-site-backend\venv\lib\site-packages\sqlalchemy\engine\default.py", line 682, in do_rollback
+    dbapi_connection.rollback()
+sqlite3.ProgrammingError: SQLite objects created in a thread can only be used in that same thread. The object was created in thread id 94636 and this is thread id 117300.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "d:\code\python\site\werido-site-backend\venv\lib\site-packages\sqlalchemy\pool\base.py", line 247, in _close_connection
+    self._dialect.do_close(connection)
+  File "d:\code\python\site\werido-site-backend\venv\lib\site-packages\sqlalchemy\engine\default.py", line 688, in do_close
+    dbapi_connection.close()
+sqlite3.ProgrammingError: SQLite objects created in a thread can only be used in that same thread. The object was created in thread id 94636 and this is thread id 117300.
 
 
 ```
 
-## 
 
-## Q&A
-`database is lock`
+## sqlite3:database is lock
+当对sqlite进行写入操作时,会把整个数据库锁住。对于sqlalchemy来说,当使用update或insert操作时,会启动一个事务,获取一个排他锁,sqlite会处于lock状态.
+
+- 使用sqlalchemy的event时,此时sqlite3会处于lock状态,此时**其他conn**不能再对该数据库执行其他操作.
+![](event.png)
+

@@ -25,6 +25,11 @@ redis集群中每个节点都对其他节点建立有一个持久化的tcp链接
 2.集群中每个节点状态；
 3.集群结构发生变更同步。
 4.publish/subscribe（发布订阅）功能，在Cluster版内部实现所需要交互的信息。
+redis cluster是一个去中心化的方案,即每个节点都保存有整个集群状态的信息,集群中的每2个节点都通过Redis Cluster Bus发送PING/PONG来更新节点信息
+
+#### redis Cluster 中的ping/pong(heartbeat)信息
+ TODO
+
 
 #### Redis Cluster 路由
 因为redis集群没有代理功能,当设置的key对应的hash槽不在当前链接的节点时，**Redis Cluster Bus**会返回一个**MOVE**，指令,并告知正确节点,此时客户端会重新路由到正确的节点。
@@ -32,8 +37,10 @@ redis集群中每个节点都对其他节点建立有一个持久化的tcp链接
 
 
 #### redis集群使用
-redis集群中每个主节点都保存有其他节点的信息,当链接了节点1,并且设置了一个key,如果key经过hash后所属的槽不属于节点1,则会自动链接到对应的节点。
+redis集群中每个主节点都保存有其他节点的信息,当链接了节点1,并且设置了一个key,如果key经过hash后所属的槽不属于节点1,会向客户端返回一个MOVE指令,客户端会自动链接到对应的节点。
 ![链接节点](clusterSetVar.png)
+![逻辑](clusterMove.png)
+
 
 #### 加入新节点
 redis-cluster增加节点分为2步.
@@ -143,3 +150,15 @@ S: 8da115e63a1dc8161ffd184ea36abe7a840c484e 127.0.0.1:7003
 - 1. 有从节点,把从节点删除或者转义
 - 2. 把节点的槽迁移到其他节点
 - 3. 运行``redis-cli --cluster del-node 127.0.0.1:7006(节点IP和端口) 7923269e66bd5ec4bef4d83e4d217897f0c13233(节点id)``
+
+
+### cluster主从节点
+由上面的集群信息可以得出,默认的cluster集群中默认为每个主节点配置一个副节点.当主节点挂掉的时候,副节点会顶上去成为主节点，如果此时主节点恢复，则会自动降级为副节点。
+
+#### 主节点异常检测过程
+- cluster集群各个节点是通过ping/pong消息来实时同步消息的,当一个节点发送了ping消息后,如果在一定时间（NODE_TIMEOUT）未收到，则认为该节点故障，将其置为 PFAIL状态（Possible Fail）。后续通过Gossip 发出的 PING/PONG 消息中，这个节点的 PFAIL 状态会传播到集群的其他节点。为了避免是TCP的连接问题,Redis Cluster 通过 预重试机制 排除此类误报：当 NODE_TIMEOUT / 2 过去了，但是还未收到响应，则重新连接重发 PING 消息，如果对端正常，则在很短的时间内就会有响应。
+- 当副节点收到来自其他master 节点对于故障节点的PFAIL 达到一定数量后，会把故障节点的状态升级为Fail状态,代表此时故障节点已经被公认为故障节点。
+- 当主故障节点进入到fail状态后,其所有的副节点会开始竞争成为主节点,(通过向其他master 发送 FAILVOER_AUTH_REQUEST 消息发起竞选，master 收到后回复 FAILOVER_AUTH_ACK 消息告知是否同意。slave 发送 FAILOVER_AUTH_REQUEST 前会将 currentEpoch(集群的版本信息) 自增，并将最新的Epoch(节点的版本号) 带入到 FAILOVER_AUTH_REQUEST 消息中，如果自己未投过票，则回复同意，否则回复拒绝),当主节点的slave个数 >= 3 时，很有可能产生多轮竞选失败。为了减少冲突的出现，优先级高的slave 更有可能发起竞选，从而提升成功的可能性。这里的优先级是slave的数据最新的程度，数据越新的（最完整的）优先级越高。
+- 当slave 收到 过半的master 同意时，会替代B 成为新的 master。此时会以最新的Epoch 通过PONG 消息广播自己成为master，让Cluster 的其他节点尽快的更新拓扑结构。
+当B 恢复可用之后，它仍然认为自己是master，但逐渐的通过 Gossip协议 得知 A 已经替代了自己，然后降级为 A 的 slave。
+

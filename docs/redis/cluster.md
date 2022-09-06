@@ -28,7 +28,17 @@ redis集群中每个节点都对其他节点建立有一个持久化的tcp链接
 redis cluster是一个去中心化的方案,即每个节点都保存有整个集群状态的信息,集群中的每2个节点都通过Redis Cluster Bus发送PING/PONG来更新节点信息
 
 #### redis Cluster 中的ping/pong(heartbeat)信息
- TODO
+redis集群中的两两节点通过发送ping/pong消息来进行集群状态的同步. ping/pong拥有相同的消息结构.
+- 一般节点发送了ping节点后,接收节点会回复一个pong消息。节点也可以只发送pong消息来进行节点配置信息的同步
+- 通常来说每秒钟会随机ping几个节点，这样，每个节点发送的ping包(和接收的pong包)的总数是一个恒定的数量，与集群中节点的数量无关。
+- 如果节点发送了ping包后,在NODE_TIMEOUT/2没有响应的话，会再次像另外一个节点重新建立链接,避免是TCP链接的问题而非节点的宕机问题
+- heartbeat消息包拥有相同的消息头部,包括的字段如下:
+a.node_id：节点id
+b.currentEpoch:集群配置版本信息
+c.node flag：标记该节点是主节点还是副节点
+d.hash slots map:key对应的哈希槽分布
+e.master-node-id:如果是副节点，会发送主节点的NODE-ID
+f:state:发送节点中记录的集群的状态
 
 
 #### Redis Cluster 路由

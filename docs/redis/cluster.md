@@ -158,7 +158,8 @@ S: 8da115e63a1dc8161ffd184ea36abe7a840c484e 127.0.0.1:7003
 #### 主节点异常检测过程
 - cluster集群各个节点是通过ping/pong消息来实时同步消息的,当一个节点发送了ping消息后,如果在一定时间（NODE_TIMEOUT）未收到，则认为该节点故障，将其置为 PFAIL状态（Possible Fail）。后续通过Gossip 发出的 PING/PONG 消息中，这个节点的 PFAIL 状态会传播到集群的其他节点。为了避免是TCP的连接问题,Redis Cluster 通过 预重试机制 排除此类误报：当 NODE_TIMEOUT / 2 过去了，但是还未收到响应，则重新连接重发 PING 消息，如果对端正常，则在很短的时间内就会有响应。
 - 当副节点收到来自其他master 节点对于故障节点的PFAIL 达到一定数量后，会把故障节点的状态升级为Fail状态,代表此时故障节点已经被公认为故障节点。
-- 当主故障节点进入到fail状态后,其所有的副节点会开始竞争成为主节点,(通过向其他master 发送 FAILVOER_AUTH_REQUEST 消息发起竞选，master 收到后回复 FAILOVER_AUTH_ACK 消息告知是否同意。slave 发送 FAILOVER_AUTH_REQUEST 前会将 currentEpoch(集群的版本信息) 自增，并将最新的Epoch(节点的版本号) 带入到 FAILOVER_AUTH_REQUEST 消息中，如果自己未投过票，则回复同意，否则回复拒绝),当主节点的slave个数 >= 3 时，很有可能产生多轮竞选失败。为了减少冲突的出现，优先级高的slave 更有可能发起竞选，从而提升成功的可能性。这里的优先级是slave的数据最新的程度，数据越新的（最完整的）优先级越高。
-- 当slave 收到 过半的master 同意时，会替代B 成为新的 master。此时会以最新的Epoch 通过PONG 消息广播自己成为master，让Cluster 的其他节点尽快的更新拓扑结构。
+- 当主故障节点进入到fail状态后,其所有的副节点会开始竞争成为主节点,(通过向其他master发送FAILVOER_AUTH_REQUEST 消息发起竞选，master 收到后回复 FAILOVER_AUTH_ACK 消息告知是否同意。slave 发送 FAILOVER_AUTH_REQUEST 前会将 currentEpoch(集群的版本信息) 自增，并将最新的Epoch(节点的版本号) 带入到 FAILOVER_AUTH_REQUEST 消息中，如果自己未投过票，则回复同意，否则回复拒绝),当主节点的slave个数 >= 3 时，很有可能产生多轮竞选失败。为了减少冲突的出现，优先级高的slave 更有可能发起竞选，从而提升成功的可能性。这里的优先级是slave的数据最新的程度，数据越新的（最完整的）优先级越高。
+- 当slave 收到过半的master同意时，会替代B 成为新的 master。此时会以最新的Epoch 通过PONG 消息广播自己成为master，让Cluster 的其他节点尽快的更新拓扑结构。
 当B 恢复可用之后，它仍然认为自己是master，但逐渐的通过 Gossip协议 得知 A 已经替代了自己，然后降级为 A 的 slave。
+
 

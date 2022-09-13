@@ -85,5 +85,39 @@ b.若获取了share锁后，在获取RESERVED锁,此时其他进程依然可以�
 c.获取RESERVED锁后，开始创建回滚日志,即xxx.journal文件，将该页的原始内容写入回滚日志。对页面的更改首先保存在内存中，不会写入磁盘。原始数据库文件保持不变，这意味着其他进程可以继续读取数据库。
 d.确保了所有回滚日志(xxx.journal)已经写入到磁盘后,会在获取pending锁，知道其他share锁释放完毕,会再去获取EXCLUSIVE排他锁,然后把所有的数据从内容写入到文件中去.然后删除xxx.journal文件，释放pending和exclusive锁.
 
+- Q: Sqlite的存储结构
+sqlite是单文件数据库,由多个页面组成,每个数据库文件都有对应100bytes大小的文件头.database的文件头只会在page1第一页出现,但是其他root页面会预留100bytes的空位置。sqlite数据库的头部包括以下内容:
+- 1.header-string(16 bytes):sqlite头部格式标记,固定内容为:"SQLite format 3\000"
+- 2.The database page size in bytes(2 bytes):sqlite每一页的大小,范围:512~32768,为1的话代表大小为65536.
+- 3.File format write version(1 bytes). 1 代表普通, 2代表WAL模式.大于2时表示改数据库既不能读也不能写.
+- 4.File format read version(1 bytes). 1 代表普通, 2代表WAL模式.大于2时表示改数据库既不能读也不能写.
+- 5.Bytes of unused "reserved" space at the end of each page(1 bytes):每一页保留的字节数,用于拓展用,为偶数且不能小于480(如果不为0的话)
+- 6.Maximum embedded payload fraction(1 bytes): Must be 64.
+- 7.Minimum embedded payload fraction(1 bytes): Must be 32.
+- 8.Leaf payload fraction(1 bytes): Must be 32.
+- 9.File change counter(4 bytes):数据库文件改变的次数.在非WAL的模式下,每次修改过,该字节都会加1.当有多个进程同时访问同一个数据库时,可以通过改字段来判断是否修改。
+- 10.Size of the database file in pages(4 bytes):
+- 11.Page number of the first freelist trunk page(4 bytes):
+- 13.Total number of freelist pages(4 bytes):未被使用的页列表，比如删除了一些数据.就会有一些空余的页面.
+- 14.The schema cookie(4 bytes):每次修改表结构时,该字段会自动加1
+- 15.The schema format number(4 bytes): Supported schema formats are 1, 2, 3, and 4,表格式版本号?
+- 16.Default page cache size(4 bytes):缓存页面大小
+- 17.The page number of the largest root b-tree page when in auto-vacuum or incremental-vacuum modes, or zero otherwise.
+- 18.The database text encoding(4 bytes):数据库文件内容编码：1代表UTF-8. 2代表 UTF-16le. 3代表UTF-16be.
+- 19.The "user version" as read and set by the user_version pragma.
+- 20.True (non-zero) for incremental-vacuum mode. False (zero) otherwise.
+- 21.The "Application ID" set by PRAGMA application_id.
+- 22.Reserved for expansion. Must be zero.
+- 23.The version-valid-for number.
+- 24.SQLITE_VERSION_NUMBER
+
+同理,一个数据库是由多个B-tree组成的——每张表以及每个索引各对应一个B-tree。数据库中每张表或索引都以根页面作为第一页。所有的索引和表的根页面都存储在sqlite_master表中.
+![sqlite_master](../sqlite_master.png)
+
+SQlite的存储同样使用的B树,可以分表和索引,表数据的存储使用的是B+树,索引的存储使用的是普通B树.格式如下:   
+![sqlite_master](../sqlite_bTree.png)
+
+
+
 
 

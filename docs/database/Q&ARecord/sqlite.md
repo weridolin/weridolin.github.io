@@ -112,24 +112,31 @@ sqlite是单文件数据库,由多个页面组成,每个数据库文件都有对
 - 24.SQLITE_VERSION_NUMBER
 
 同理,一个数据库是由多个B-tree组成的——每张表以及每个索引各对应一个B-tree。数据库中每张表或索引都以根页面作为第一页。所有的索引和表的根页面都存储在sqlite_master表中.
-![sqlite_master](../sqlite_master.png)
+![sqlite_master](/docs/database/sqlite_master.png)
 
 SQlite的存储同样使用的B树,可以分表和索引,表数据的存储使用的是B+树,索引的存储使用的是普通B树.格式如下:   
-![sqlite_master](../sqlite_bTree.png)
+![sqlite_master](/docs/database/sqlite_bTree.png)
 每颗B树的root page可以分为以下几个部分:
 - 1. 100bytes大小的database file header,这个只有在page1有
 - 2. 8/12字节的page header,这个每一页都有.page header主要由几个部分组成:a.page type(1bytes): `(0x02)`代表该页是索引B树里面的一个`interior page`.`(0x05)`代表该页是表B树里面的一个`interior page`. `(0x0a)`代表该页是索引B树里面的一个`leaf page`.`(0x0d)`代表该页是表B树里面的一个`leaf page`. b.page freeblocks的起始位置(2 bytes). c.当前页cell的数量(2bytes):即当前page key-value的数量 d.cell开始的位置(2 bytes) e.cell区域中的空闲字节数(1 bytes) f.
-- 3. cell pointer array:指向cell内容的指针数组(即为key),长度为2-bytes整形.并且从小到大排序
+- 3. cell pointer array:指向cell内容的指针数组(即为key),长度为2-bytes整形.并且从小到大排序(cell是page里面再分配的单位.cell的长度不是固定的,每个cell对应一条记录)
 - 4. Unallocated space:page中未分配区域
-- 5. The cell content area:cell的内容(即为value),在sqlite中，cell content总是从page的结束位置区域开始,这样是为了cell pointer array能够更好的扩展。(所以 cell pointer array和The cell content area之间会有一个Unallocated space)
-- 6. The reserved region:保留区域，用来扩充page信息
+- 5. The cell content area:cell的内容(即存放实际记录的地方),在sqlite中，cell content总是从page的结束位置区域开始,这样是为了cell pointer array能够更好的扩展。(所以 cell pointer array和The cell content area之间会有一个Unallocated space)
+- 6. The reserved region:保留区域，用来扩充page信息 
+![page](/docs/database/page.png)
 
-#### B-tree-cell的结构
-sqlite的Btree节点分为四类:
+#### B-tree cell的结构
+cell是page里面再分配的单位.cell的长度不是固定的,每个cell是对一条记录的封装.cell内容的格式跟节点的类型挂钩,主要分为四类:
 - 1. table B-Tree Leaf Cell:表b-tree叶子节点.由四部分组成:a.数据的大小(bytes).b.一个整形的id(例如row-id). c.payload:即数据 d.如果数据一页装不下,还会有4个字节大小指向存放溢出数据下一页的地址,如果数据没有溢出,则忽略
 - 2. Table B-Tree Interior Cell:表B-tree树内部节点,由两部分组成:a.一个4字节的页码,指向左子节点 b.一个整形的key
 
 - 3. Index B-Tree Leaf Cell：索引b-tree叶子节点。由三部分组成:a.数据的大小(bytes),包括溢出部分 b.payload:即数据(如果有溢出,则是没有溢出部分) c.如果数据一页装不下,还会有4个字节大小指向存放溢出数据页列表第一页的地址,如果数据没有溢出,则忽略
 - 4.Index B-Tree Interior Cell：索引b-tree内部节点，由四部分组成:a.一个4字节的页码,指向左子节点. b.:a.数据的大小(bytes) c.payload:即数据(如果有溢出,则是没有溢出部分). d.如果数据一页装不下,还会有4个字节大小指向存放溢出数据页列表第一页的地址,如果数据没有溢出,则忽略
+![cell](/docs/database/cell.png)
 
 
+<!-- #### record
+sqlite page中的记录包括一个**header**和**body**:header以一个variant值开始，代表这header的总长度(包括variant值的长度).variant值后面是一些代表其他含义的variant值.每列一个，这些决定了每一列的数据类型. -->
+
+
+#### sqlite record 格式

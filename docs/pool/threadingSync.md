@@ -482,3 +482,53 @@ class Semaphore:
 - 如果是多个线程同时竞争同一个*Lock/condition/semaphore*,如果有con/sem释放时,则遵循先来先到原则.先进入_waiters队列的先获取到释放的锁。比如按照时间顺序先后A,B,C分别等待同个*con/sem*。如果此时满足条件，则A会优先获得该释放的锁.如果是调用了*con.wait_for(predict)*去等待,而*predict()*返回False的情况,则此时A会再次去调用con.wait().添加到*con._waiters*的队列的尾部.当下次再有锁释放时,则B会优先获得执行权。
 - 如果要在一个线程*acquire*.在另外一个线程*release*。只能用原生*lock*(*condition*初始化可以自定义lock类型),不能用*Rlock*。
 - semaphore内部用的原生的Lock，也是线程安全的
+
+
+
+
+
+
+
+### 关于threading中使用sleep()记录  
+在平时接触的工作中,发现有时需要对**thread**sleep一下在继续运行.而在sleep过程中需要能够做到中途wake并结束sleep.这里总结了以下2种方法:
+- 1. 把sleep拆解成多个小时长的sleep*次数.在循环中间进行其他逻辑处理
+- 2. 利用threading.Event()实例中的wait方法  
+
+```python
+
+import threading,time
+
+
+class SleepThread(threading.Thread):
+    
+    exit_flag = False
+
+    def run(self) -> None:
+        ## 把sleep拆成多个小间隔的sleep
+        for _ in range(1000):
+            # sleep过程中响应对应的逻辑操作
+            if self.exit_flag:
+                print("exit")
+                break
+            time.sleep(0.1)
+        return super().run()
+
+class SleepThread(threading.Thread):
+    
+    exit_flag = threading.Event()
+
+    def run(self) -> None:
+        ## 把sleep拆成多个小间隔的sleep
+        self.exit_flag.wait(100)
+        print("exit")
+        return super().run()
+
+
+if __name__ =="__main__":
+    t = SleepThread()
+    t.start()
+    time.sleep(2)
+    t.exit_flag=True # 自定义退出标记
+    t.exit_flag.set() # 利用 threading.Event()的set来退出
+    t.join()
+```

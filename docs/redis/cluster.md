@@ -17,7 +17,7 @@ redis集群理论上key的哈希槽映射范围为0--16384,节点的映射算法
 hashTag能够使得相关的数据分布到相同的槽上面,比如:
 姓名key：Person:Name:{20180890310921230001}
 性别key：Person:Age:{20180890310921230001}
-
+![key](key.png)
 
 #### Redis Cluster Bus
 redis集群中每个节点都对其他节点建立有一个持久化的tcp链接.通过TCP总线**Redis Cluster Bus**链接.当集群中的状态发生改变时,通过**Redis Cluster Bus**两两进行同步.包括：

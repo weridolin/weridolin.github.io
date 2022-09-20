@@ -26,10 +26,14 @@ class SleepThread(threading.Thread):
         return super().run()
 
 
+
 if __name__ =="__main__":
-    t = SleepThread()
-    t.start()
-    time.sleep(2)
-    t.exit_flag=True # 自定义退出标记
-    t.exit_flag.set() # 利用 threading.Event()的set来退出
-    t.join()
+    # t = SleepThread()
+    # t.start()
+    # time.sleep(2)
+    # t.exit_flag=True # 自定义退出标记
+    # t.exit_flag.set() # 利用 threading.Event()的set来退出
+    # t.join()
+    # main = threading.main_thread()
+    ...
+    

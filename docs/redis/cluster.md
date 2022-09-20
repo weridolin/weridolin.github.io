@@ -163,7 +163,8 @@ S: 8da115e63a1dc8161ffd184ea36abe7a840c484e 127.0.0.1:7003
 
 
 ### cluster主从节点
-由上面的集群信息可以得出,默认的cluster集群中默认为每个主节点配置一个副节点.当主节点挂掉的时候,副节点会顶上去成为主节点，如果此时主节点恢复，则会自动降级为副节点。
+由上面的集群信息可以得出,默认的cluster集群中默认为每个主节点配置一个副节点.当主节点挂掉的时候,副节点会顶上去成为主节点，如果此时主节点恢复，则会自动降级为副节点。要实现节点的故障转移,必须结合哨兵模式来运行集群.
+
 
 #### 主节点异常检测过程
 - cluster集群各个节点是通过ping/pong消息来实时同步消息的,当一个节点发送了ping消息后,如果在一定时间（NODE_TIMEOUT）未收到，则认为该节点故障，将其置为 PFAIL状态（Possible Fail）。后续通过Gossip 发出的 PING/PONG 消息中，这个节点的 PFAIL 状态会传播到集群的其他节点。为了避免是TCP的连接问题,Redis Cluster 通过 预重试机制 排除此类误报：当 NODE_TIMEOUT / 2 过去了，但是还未收到响应，则重新连接重发 PING 消息，如果对端正常，则在很短的时间内就会有响应。
@@ -173,3 +174,98 @@ S: 8da115e63a1dc8161ffd184ea36abe7a840c484e 127.0.0.1:7003
 当B 恢复可用之后，它仍然认为自己是master，但逐渐的通过 Gossip协议 得知 A 已经替代了自己，然后降级为 A 的 slave。
 
 
+
+#### redis cluster结合哨兵模式
+- 将redis集群和哨兵模式结合,即可以实现高可用和可拓展,redis提供了运行哨兵模式的命令**redis-server /path/to/sentinel.conf --sentinel**,sentinel.conf可以同时配置监听多个master.sentinel本身支持多个进程同时协作,当达到一定数量的sentinel判定出故障时,能够降低误判的风险,想要运行多个sentinel,需要多个sentinel.conf文件.
+- sentinel一般部署3个实例,能够拥有比较好的健壮性.
+- 故障转移期间,集群并不能在该期间的读写同步。
+sentinel.conf的基本配置如下:  
+```conf
+
+   port 26381  # sentinel服务监听的端口
+   dir "/mnt/d/code/python/weridolin.github.io/docs/redis/sentinel" # sentinel 的主目录
+   # sentinel monitor <master-name> <ip> <redis-port> <quorum>
+   # 让 sentinel 去监控一个地址为 ip:port 的主服务器，这里的 master-name 可以自定义；
+   # <quorum> 是一个数字，表示当有多少个 sentinel 认为主服务器宕机时，它才算真正的宕机掉，通常数量为半数或半数以上才会认为主机已经宕机，<quorum> 需要根据 sentinel 的数量设置。
+   # 只需要指定主节点即可,从节点是sentinel自动发现的
+   sentinel monitor test2 127.0.0.1 7003 1
+
+   # 哨兵服务使用的端口
+
+   # sentinel monitor <master-name> <ip> <redis-port> <quorum>
+   # 让 sentinel 去监控一个地址为 ip:port 的主服务器，这里的 master-name 可以自定义；
+   # <quorum> 是一个数字，表示当有多少个 sentinel 认为主服务器宕机时，它才算真正的宕机掉，通常数量为半数或半数以上才会认为主机已经宕机，<quorum> 需要根据 sentinel 的数量设置。
+   sentinel monitor test1 127.0.0.1 7002 2
+
+   # 哨兵服务使用的端口
+
+   # sentinel monitor <master-name> <ip> <redis-port> <quorum>
+   # 让 sentinel 去监控一个地址为 ip:port 的主服务器，这里的 master-name 可以自定义；
+   # <quorum> 是一个数字，表示当有多少个 sentinel 认为主服务器宕机时，它才算真正的宕机掉，通常数量为半数或半数以上才会认为主机已经宕机，<quorum> 需要根据 sentinel 的数量设置。
+   sentinel monitor test3 127.0.0.1 7004 3
+
+   down-after-milliseconds  10000 #实例不可达的时间.单位毫秒,即发送ping后如果经历该时长没有返回则默认发生故障
+   
+
+
+
+//启动后输出
+38:X 20 Sep 2022 21:53:03.686 # +new-epoch 1
+38:X 20 Sep 2022 21:53:03.686 # +try-failover master test2 127.0.0.1 7003
+38:X 20 Sep 2022 21:53:03.698 * Sentinel new configuration saved on disk
+38:X 20 Sep 2022 21:53:03.698 # +vote-for-leader fb1834603f3a1ec75bbd8fdd881dc80cac39dd77 1
+38:X 20 Sep 2022 21:53:03.698 # +elected-leader master test2 127.0.0.1 7003
+38:X 20 Sep 2022 21:53:03.698 # +failover-state-select-slave master test2 127.0.0.1 7003
+38:X 20 Sep 2022 21:53:03.699 # +sdown slave 127.0.0.1:7000 127.0.0.1 7000 @ test2 127.0.0.1 7003
+38:X 20 Sep 2022 21:53:03.699 # +sdown master test3 127.0.0.1 7004
+38:X 20 Sep 2022 21:53:03.699 # +sdown slave 127.0.0.1:7001 127.0.0.1 7001 @ test3 127.0.0.1 7004
+38:X 20 Sep 2022 21:53:03.751 # -failover-abort-no-good-slave master test2 127.0.0.1 7003
+38:X 20 Sep 2022 21:53:03.813 # Next failover delay: I will not start a failover before Tue Sep 20 21:59:03 2022
+38:X 20 Sep 2022 21:53:07.896 # -sdown master test1 127.0.0.1 7002
+38:X 20 Sep 2022 21:53:07.896 # -sdown slave 127.0.0.1:7005 127.0.0.1 7005 @ test1 127.0.0.1 7002
+38:X 20 Sep 2022 21:53:07.896 # -sdown master test2 127.0.0.1 7003
+38:X 20 Sep 2022 21:53:07.896 # -odown master test2 127.0.0.1 7003
+38:X 20 Sep 2022 21:53:07.896 # -sdown slave 127.0.0.1:7000 127.0.0.1 7000 @ test2 127.0.0.1 7003
+38:X 20 Sep 2022 21:53:07.896 # -sdown master test3 127.0.0.1 7004
+38:X 20 Sep 2022 21:53:07.896 # -sdown slave 127.0.0.1:7001 127.0.0.1 7001 @ test3 127.0.0.1 7004
+38:X 20 Sep 2022 21:55:35.072 # +sdown master test2 127.0.0.1 7003
+38:X 20 Sep 2022 21:55:35.072 # +odown master test2 127.0.0.1 7003 #quorum 1/1 # 只有7003节点做了故障转移
+38:X 20 Sep 2022 21:56:15.005 # +sdown master test1 127.0.0.1 7002
+38:X 20 Sep 2022 21:56:19.373 # +sdown master test3 127.0.0.1 7004
+38:X 20 Sep 2022 21:59:03.928 # +new-epoch 2
+
+
+
+//将三个主节点停止
+
+root@alin:/mnt/d/code/python/weridolin.github.io/docs/redis# redis-cli --cluster  check 127.0.0.1:7000
+Could not connect to Redis at 127.0.0.1:7002: Connection refused
+Could not connect to Redis at 127.0.0.1:7004: Connection refused
+Could not connect to Redis at 127.0.0.1:7003: Connection refused
+*** WARNING: 127.0.0.1:7001 claims to be slave of unknown node ID 09ffa15339a3bd7f8c7cee30790deb49f3c46efa.
+*** WARNING: 127.0.0.1:7005 claims to be slave of unknown node ID 9ac80517842f76829f535b7dabc5438dc2d8c145.
+127.0.0.1:7000 (29410326...) -> 2 keys | 5461 slots | 0 slaves.
+[OK] 2 keys in 1 masters.
+0.00 keys per slot on average.
+>>> Performing Cluster Check (using node 127.0.0.1:7000)
+M: 2941032658f85a2ef1a92da13ff45113be95d16f 127.0.0.1:7000 # 只有7003节点做了故障转移,因为#quorum为1满足故障转移条件
+   slots:[0-5460] (5461 slots) master
+S: 7044ea4096e4efd0feae60befcac062adaefd16b 127.0.0.1:7001
+   slots: (0 slots) slave
+   replicates 09ffa15339a3bd7f8c7cee30790deb49f3c46efa
+S: bf0d0f38df6807b6872f2544fdd20d9229c18bf0 127.0.0.1:7005
+   slots: (0 slots) slave
+   replicates 9ac80517842f76829f535b7dabc5438dc2d8c145
+[OK] All nodes agree about slots configuration.
+>>> Check for open slots...
+>>> Check slots coverage...
+[ERR] Not all 16384 slots are covered by nodes.
+
+
+```
+
+
+
+## Q & A
+- Q: 从节点链接时,发现出现`Failed trying to load the MASTER synchronization DB from disk: No such file or directory`的错误
+- A: 出现这个错误是调试时是在WSL2下调试的.默认的当前挂载的目录.redis无法识别到,把配置文件里面的dir目录改为linux内置目录,不要出现挂载的目录即可.

@@ -140,3 +140,39 @@ sqlite page中的记录包括一个**header**和**body**:header以一个variant�
 
 
 #### sqlite record 格式
+无论是表Btree叶子节点，还是索引BTREE,拥有相同的**record format**格式,该格式包含的表的列和索引的相关信息，可以分为header和body两个部分.header主要由header长度,每一列的类型(datatype)组成,body由每一列的值组成:   
+
+![recordFormat](/docs/database/sqliteRecordFormat.png)
+
+serial type代表的值的类型如下:
+| serial type       | 代表的值的类型 |
+| -----------       | ----------- |
+| 0                 |表示列的值为null,大小为0bytes       |
+| 1         |表示列的值是一个8位的整型(二进制补码的形式)(1 bytes)    |
+| 2         |表示列的值是一个16位的整型(二进制补码的形式)(2 bytes)    |
+| 3         |表示列的值是一个24位的整型(二进制补码的形式)(3 bytes)    |
+| 4         |表示列的值是一个32位的整型(二进制补码的形式)(4 bytes)    |
+| 5         |表示列的值是一个48位的整型(二进制补码的形式)(6 bytes)    |
+| 6         |表示列的值是一个64位的整型(二进制补码的形式)(8 bytes)    |
+| 7         |表示列的值是整数0(0 bytes)    |
+| 8         |表示列的值是整数1(0 bytes)    |
+| 9         |表示列的值是一个 64位浮点数(8 bytes)    |
+| 10，11         |SQLITE内部使用,可能为生成临时数据库文件时用到   |
+| N>=12且为偶数        |表示值时一个blob类型,大小为 (N-12)/2 BYTES   |
+| N>=13且为奇数        |表示值时一个text类型,大小为 (N-13)/2 BYTES   |
+
+
+header size varint 和 serial type varints 一般由1个字节组成,erial type varints代表BLOB和TEXT时，可以由多个字节组成。
+
+
+
+### sqlite row id 和  INTEGER PRIMARY KEY
+sqlite中表的每一行数据始终存在于表B-TREE的叶子节点中,表B-tree非叶子节点存放的row_id(自动维护的一个隐藏的列rowid),主键在`record`为null值,不会存在record中,SQLITE每个表都默认有一个row_id列，除非创建表的时候显式指定不创建row_id,
+当定义了一个自增的整形主键（类型必须严格为**Integer**）,那么该主键将作为row_id的别名,即都是代表的row_id
+
+### sqlite with row id 
+当前sqlite创建表的时候显示指定了**without row id**时,sqlite使用的**index b-tree**来储存，而非表B-tree,储存的格式跟表B-tree一样，只是会把**PRIMARY KEY**列放在前面,作为索引B-tree的Key.
+
+
+#### 索引B-tree树
+索引B-tree树的每一条记录对应着表中的每一行记录,由被索引的列和对应的row_id(如果表创建时没有指明row_id,则由PRIMARY KEY)组成。

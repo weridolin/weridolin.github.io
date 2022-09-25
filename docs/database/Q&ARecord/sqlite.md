@@ -145,6 +145,8 @@ sqlite page中的记录包括一个**header**和**body**:header以一个variant�
 ![recordFormat](../sqliteRecordFormat.png)
 
 serial type代表的值的类型如下:
+
+
 | serial type       | 代表的值的类型 |
 | -----------       | ----------- |
 | 0                 |表示列的值为null,大小为0bytes       |

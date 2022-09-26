@@ -167,8 +167,7 @@ serial type代表的值的类型如下:
 header size varint 和 serial type varints 一般由1个字节组成,erial type varints代表BLOB和TEXT时，可以由多个字节组成。
 
 
-
-### sqlite row id 和  INTEGER PRIMARY KEY
+ 
 sqlite中表的每一行数据始终存在于表B-TREE的叶子节点中,表B-tree非叶子节点存放的row_id(自动维护的一个隐藏的列rowid),主键在`record`为null值,不会存在record中,SQLITE每个表都默认有一个row_id列，除非创建表的时候显式指定不创建row_id,
 当定义了一个自增的整形主键（类型必须严格为**Integer**）,那么该主键将作为row_id的别名,即都是代表的row_id
 

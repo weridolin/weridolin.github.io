@@ -1,6 +1,91 @@
+## 协程函数。
+在python中,通过**async**关键字可以定义一个协程函数,每个协程函数必须包含一个**await**语句,表示等待一个I/O事件,由**yield/yield from**的学习可知,await的伪代码相当于**yield from**,此时会把函数挂起,直到下次调用send()方法激活,在次期间程序的执行交换给对应的**event-loop**。**async**定义的函数相当于做了一层**CoroWrapper**的封装,源码和注释如下:
+```python
+class CoroWrapper:
+    # Wrapper for coroutine object in _DEBUG mode.
+
+    def __init__(self, gen, func=None):
+        assert inspect.isgenerator(gen) or inspect.iscoroutine(gen), gen
+        ### 调用的 async定义的函数的时候（比如asyncio.run(mock_sleep())）,我们会直接传入 method(),
+        ### 此时是生成一个生成器
+        self.gen = gen
+        self.func = func  # Used to unwrap @coroutine decorator
+        self._source_traceback = format_helpers.extract_stack(sys._getframe(1))
+        self.__name__ = getattr(gen, '__name__', None)
+        self.__qualname__ = getattr(gen, '__qualname__', None)
+
+    def __repr__(self):
+        coro_repr = _format_coroutine(self)
+        if self._source_traceback:
+            frame = self._source_traceback[-1]
+            coro_repr += f', created at {frame[0]}:{frame[1]}'
+
+        return f'<{self.__class__.__name__} {coro_repr}>'
+
+    def __iter__(self):
+        return self
+
+    def __next__(self): # for xx in xxxxx: send(None)并驱动生成器往下运行
+        return self.gen.send(None)
+
+    def send(self, value): # 相当于驱动生成器继续往下运行
+        return self.gen.send(value)
+
+    def throw(self, type, value=None, traceback=None):
+        return self.gen.throw(type, value, traceback) # 生成器抛出异常
+
+    def close(self):
+        return self.gen.close() # 关闭生成器
+
+    @property
+    def gi_frame(self):
+        return self.gen.gi_frame
+
+    @property
+    def gi_running(self):
+        return self.gen.gi_running
+
+    @property
+    def gi_code(self):
+        return self.gen.gi_code
+
+    def __await__(self):
+        return self
+
+    @property
+    def gi_yieldfrom(self):
+        return self.gen.gi_yieldfrom
+
+    def __del__(self):
+        # Be careful accessing self.gen.frame -- self.gen might not exist.
+        gen = getattr(self, 'gen', None)
+        frame = getattr(gen, 'gi_frame', None)
+        if frame is not None and frame.f_lasti == -1:
+            msg = f'{self!r} was never yielded from'
+            tb = getattr(self, '_source_traceback', ())
+            if tb:
+                tb = ''.join(traceback.format_list(tb))
+                msg += (f'\nCoroutine object created at '
+                        f'(most recent call last, truncated to '
+                        f'{constants.DEBUG_STACK_DEPTH} last lines):\n')
+                msg += tb.rstrip()
+            logger.error(msg)
+```
+正是利用了生成器能将执行的函数挂起的特性,当遇到函数耗时的I/0操作时,能够直接调用**await**(yield from)将程序的执行权交还给event-loop,event-loop再去对应执行其他的coro函数,避免空等待I/0操作.,而当I/O操作完成时,event-loop又会调用对应的send()方法,驱动其继续执行.
+
+
+## Handle和TimeHandle
+
+
+
+
 ## eventloop
-事件循环是Python异步编程中非常重要的概念,每个线程只能有``一个``事件循环,并且控制该线程中所有的协程/异步任务的运行。比如当前线程中有task1,task2,注册到当前线程的eventLoop中.当task1运行遇到I/O操作时，运行控制权会交还给该线程的事件循环*eventLoop*，该线程对应的事件循环就会接着运行*task2*.达到并发的效果.如果运行一个阻塞任务，则该线程下的所有的其他task都不会执行(比如sleep(10000)，除非用asyncio.sleep()).     
-#### baseEventloop源码      
+事件循环是Python异步编程中非常重要的概念,一般每个线程对应着``一个``事件循环,并且控制该线程中所有的协程/异步任务的运行。比如当前线程中有task1,task2,注册到当前线程的eventLoop中.当task1运行遇到I/O操作时，运行控制权会交还给该线程的事件循环*eventLoop*，该线程对应的事件循环就会接着运行*task2*.达到并发的效果.如果运行一个阻塞任务，则该线程下的所有的其他task都不会执行(比如sleep(10000)，除非用asyncio.sleep()).在一个线程定义的coro,不能在另外线程的event-loop中被调用.
+
+
+#### baseEventloop源码
+
+注释如下
 
 ```python
 ##  asynico.base_envent.py 这里只是抄送了一部分
@@ -12,8 +97,8 @@ class BaseEventLoop(events.AbstractEventLoop):
         self._stopping = False
         # 存放待执行的CALLBACK 列表，双向队列,这里的callback被封装成 handle/timerHandle对象
         self._ready = collections.deque()       
-        self._scheduled = [] ## 需要延迟执行的tasks。堆的数据结构
-        self._default_executor = None ## 默认的线程池执行器(可以用来执行完全同步的代码)
+        self._scheduled = [] ## 需要延迟执行的tasks。堆的数据结构，是一个优先队列
+        self._default_executor = None ## 默认的线程池执行器(可以用来执行同步的代码,即同步代码以异步的方式执行)
         self._internal_fds = 0
         # Identifier of the thread running the event loop, or None if the
         # event loop is not running
@@ -33,35 +118,10 @@ class BaseEventLoop(events.AbstractEventLoop):
         # being iterated by the loop.
         self._asyncgens = weakref.WeakSet() # 储存注册到该事件循环的所有的 generator
         # Set to True when `loop.shutdown_asyncgens` is called.
-        self._asyncgens_shutdown_called = False
+        self._asyncgens_shutdown_called = False # 停止所有的generator
         # Set to True when `loop.shutdown_default_executor` is called.
-        self._executor_shutdown_called = False
+        self._executor_shutdown_called = False # 停止线程池执行器
 
-    def __repr__(self):
-        return (
-            f'<{self.__class__.__name__} running={self.is_running()} '
-            f'closed={self.is_closed()} debug={self.get_debug()}>'
-        )
-
-    def create_future(self):
-        """Create a Future object attached to the loop."""
-        return futures.Future(loop=self)
-
-    def create_task(self, coro, *, name=None):
-        """Schedule a coroutine object.
-
-        Return a task object.
-        """
-        self._check_closed()
-        if self._task_factory is None:
-            task = tasks.Task(coro, loop=self, name=name)
-            if task._source_traceback:
-                del task._source_traceback[-1]
-        else:
-            task = self._task_factory(self, coro)
-            tasks._set_task_name(task, name)
-
-        return task
 
     def _asyncgen_finalizer_hook(self, agen):
         self._asyncgens.discard(agen)
@@ -145,13 +205,14 @@ class BaseEventLoop(events.AbstractEventLoop):
             # 设置loop为全局的事件循环,这里时一个进程对应一个事件循环
             events._set_running_loop(self)
             while True:
+                # run forever其实就是的运行run once
                 self._run_once()
                 if self._stopping:
                     break
         finally:
             self._stopping = False
             self._thread_id = None
-            events._set_running_loop(None)
+            events._set_running_loop(None) #
             self._set_coroutine_origin_tracking(False)
             sys.set_asyncgen_hooks(*old_agen_hooks)
 
@@ -193,7 +254,8 @@ class BaseEventLoop(events.AbstractEventLoop):
 
         return future.result()
 
-    def stop(self):
+    def stop(self): 
+        # 停止事件循环
         """Stop running the event loop.
 
         Every callback already scheduled will still run.  This simply informs
@@ -227,12 +289,6 @@ class BaseEventLoop(events.AbstractEventLoop):
     def is_closed(self):
         """Returns True if the event loop was closed."""
         return self._closed
-
-    def __del__(self, _warn=warnings.warn):
-        if not self.is_closed():
-            _warn(f"unclosed event loop {self!r}", ResourceWarning, source=self)
-            if not self.is_running():
-                self.close()
 
     def is_running(self):
         """Returns True if the event loop is running."""
@@ -282,7 +338,7 @@ class BaseEventLoop(events.AbstractEventLoop):
         timer = events.TimerHandle(when, callback, args, self, context)
         if timer._source_traceback:
             del timer._source_traceback[-1]
-        heapq.heappush(self._scheduled, timer)
+        heapq.heappush(self._scheduled, timer) # _scheduled 一个优先队列.最小堆，事件小的在最上面
         timer._scheduled = True
         return timer
 
@@ -320,7 +376,7 @@ class BaseEventLoop(events.AbstractEventLoop):
         handle = events.Handle(callback, args, self, context)
         if handle._source_traceback:
             del handle._source_traceback[-1]
-        self._ready.append(handle)
+        self._ready.append(handle) # ready普通队列,先进先出
         return handle
 
     def _check_thread(self):
@@ -393,7 +449,8 @@ class BaseEventLoop(events.AbstractEventLoop):
         'call_later' callbacks.
         """
 
-        ## 两个队列  self._scheduled是存放延迟执行的任务的队列. self._ready 存放的是即将要执行的队列
+        ## 两个队列  self._scheduled是存放延迟执行的任务的队列. 
+        ##  self._ready 存放的是即将要执行的队列
         sched_count = len(self._scheduled)
         if (sched_count > _MIN_SCHEDULED_TIMER_HANDLES and
             self._timer_cancelled_count / sched_count >
@@ -401,45 +458,49 @@ class BaseEventLoop(events.AbstractEventLoop):
             # Remove delayed calls that were cancelled if their number
             # is too high
             new_scheduled = []
+
+            ## 先过滤掉已经被取消的task
             for handle in self._scheduled:
                 if handle._cancelled:
                     handle._scheduled = False
                 else:
                     new_scheduled.append(handle)
 
-            heapq.heapify(new_scheduled)
+            heapq.heapify(new_scheduled) # 优先队列
             self._scheduled = new_scheduled
             self._timer_cancelled_count = 0
         else:
-            # 检测第一个任务是否为取消，是的话直接移除
-            # Remove delayed calls that were cancelled from head of queue.
+            # 过滤掉所有cancelled状态的任务
             while self._scheduled and self._scheduled[0]._cancelled:
                 self._timer_cancelled_count -= 1
                 handle = heapq.heappop(self._scheduled)
                 handle._scheduled = False
 
         timeout = None
-        ## ready 里面有待处理的callback.表示这次循环有东西要处理
+        ## ready 里面有待处理的callback.表示这次循环有东西要处理，需要马上执行
         if self._ready or self._stopping:
             timeout = 0
-        elif self._scheduled: # 这次循环没有待处理的callback,则检测延迟处理堆是否有到时间需要处理的任务
-            # Compute the desired timeout.
+
+        elif self._scheduled: 
+            # _scheduled[0]其实就是最早要执行的任务，（优先队列,按执行时间排序）
             when = self._scheduled[0]._when
             timeout = min(max(0, when - self.time()), MAXIMUM_SELECT_TIMEOUT)
 
 
 
         # windows 上面是利用select IO模型来驱动的,这个子类实现。基类主要实现回调的处理
+        # 如果协程里面有I/O操作,当完成触发事件后,会在这里返回
         event_list = self._selector.select(timeout)
         self._process_events(event_list)
 
 
         # 把self._scheduled中所有到期需要处理的task弹出并添加到 ready队列，并执行
-        # Handle 'later' callbacks that are ready.
+        # 因为 scheduled是一个优先队列，只要找到开始时间不必当前时间大的为止，后面肯定都是当前时间之后执行的
         end_time = self.time() + self._clock_resolution
         while self._scheduled:
             handle = self._scheduled[0]
             if handle._when >= end_time:
+                # 第一个执行时间大于end_time，后面的执行时间肯定都大于end_time
                 break
             handle = heapq.heappop(self._scheduled)
             handle._scheduled = False
@@ -451,6 +512,8 @@ class BaseEventLoop(events.AbstractEventLoop):
         # callbacks scheduled by callbacks run this time around --
         # they will be run the next time (after another I/O poll).
         # Use an idiom that is thread-safe without using locks.
+
+        # 运行ready中的所有任务
         ntodo = len(self._ready)
         for i in range(ntodo):
             ## 处理 _ready中所有完成的任务/callback
@@ -477,10 +540,15 @@ class BaseEventLoop(events.AbstractEventLoop):
 
 ```
 
-- *BaseEventLoop*中主要有两个比较重要的属性，*scheduled*:主要是记录一些延迟的待执行(非马上执行)的任务(为堆的数据结构).*ready*主要是才存放可以执行的任务。
-- *event loop*每次循环都会去做从*scheduled* 找出已经需要执行的*task/callback*，添加到*ready*队列中.接着会执行完*ready*中函数 
-- *scheduled*,*ready*中存放的并非异步任务，而是对应的回调函数，回调函数会被封装成*handle*对象(asyncio.event.py)
+- *BaseEventLoop*中主要有两个比较重要的属性，*scheduled*:主要是记录一些延迟的待执行(非马上执行)的任务(为最小堆堆的数据结构，优先队列，按照执行时间排序).*ready*主要是才存放当前可以执行的任务(不需要延时)。
+- *event loop*每次循环都会去做从*scheduled* 找出所有已经需要执行的*task*(既满足执行时间小于当前时间的任务)，添加到*ready*队列中.接着会执行完*ready*中所有待执行的任务. 
+<!-- - *scheduled*,*ready*中存放的并非异步任务，而是对应的回调函数，回调函数会被封装成*handle*对象(asyncio.event.py) -->
 - 所有的有异步任务都会通过*asyncgen_firstiter_hook*方法添加到*asyncgens*属性里面
+
+
+
+
+
 
 #### 添加事件监听
 - call_later(self, delay, callback, *args, context=None):   

@@ -76,6 +76,8 @@ class CoroWrapper:
 正是利用了生成器能将执行的函数挂起的特性,当遇到函数耗时的I/0操作时,能够直接调用**await**(yield from)将程序的执行权交还给event-loop,event-loop再去对应执行其他的coro函数,避免空等待I/0操作.,而当I/O操作完成时,event-loop又会调用对应的send()方法,驱动其继续执行.
 
 ### 一个协程的执行过程(调用asyncio.run运行).
+
+#### 运行前的处理
 假设我们定义了一个协程函数**mock_sleep**,然后用**asyncio.run(func)**去运行(协程函数只能用事件循环来驱动运行):       
 
 ```python
@@ -87,7 +89,7 @@ async def mock_sleep():
 
 asyncio.run(mock_sleep())
 ```     
-- 1. 对于一个协程/generator等支持异步的对象,asyncio都会把其封装一个**task**(future)对象.**asyncio.run**方法会初始化以一个事件循环,并运行该事件循环,直到该**task**执行完成:  
+- 1. 对于一个协程/generator等支持异步的对象,asyncio都会把其封装一个**task**(future)对象.**async**io.run**方法会初始化以一个事件循环,并运行该事件循环,直到该**task**执行完成:  
 ```python
 
 def run(main, *, debug=None):
@@ -171,6 +173,10 @@ def ensure_future(coro_or_future, *, loop=None):
 ```
 总的来说,当定义了一个**async**函数后,函数本身就相当于一个生成器,利用生成器可以挂起的特点,实现当遇到耗时I/O的时候，能够让出执行权，每个**async**定义的函数会被封装成对应的**future(task)**对象.通过event-loop来驱动(调用的task.__step())
 
+#### 开始运行
+- 1. 现在开始运行**mock_sleep**,由于在初始化task时,会直接预激活1次，调用一次loop.call_soon.协程会运行到一个yield处返回,即运行到**await asyncio.sleep(1)**,此时返回的是一个future对象.代表的是**asyncio.sleep()**的执行结果.
+- 2. 因为**mock_sleep**要等到**asyncio.sleep()**执行完成才会继续往下执行.所以将**mock_sleep**的唤醒方法**__wake**(Task类的方法)添加到**asyncio.sleep()**（future）的执行完成回调里面(fut.add_done_callback)。
+- 3 **asyncio.sleep()**执行完,执行对应的回调函数**__wake**,将**mock_sleep**唤醒,**mock_sleep**继续执行。
 
 
 
@@ -186,7 +192,7 @@ Handle和TimeHandler的源码和注释如下:
 
 
 ## eventloop
-事件循环是Python异步编程中非常重要的概念,一般每个线程对应着``一个``事件循环,并且控制该线程中所有的协程/异步任务的运行。比如当前线程中有task1,task2,注册到当前线程的eventLoop中.当task1运行遇到I/O操作时，运行控制权会交还给该线程的事件循环*eventLoop*，该线程对应的事件循环就会接着运行*task2*.达到并发的效果.如果运行一个阻塞任务，则该线程下的所有的其他task都不会执行(比如sleep(10000)，除非用asyncio.sleep()).在一个线程定义的coro,不能在另外线程的event-loop中被调用.
+事件循环是Python异步编程中非常重要的概念,一般每个线程对应着``一个``事件循环,并且控制该线程中所有的协程/异步任务的运行。比如当前线程中有task1,task2,注册到当前线程的eventLoop中.当task1运行遇到I/O操作时，运行控制权会交还给该线程的事件循环*eventLoop*，该线程对应的事件循环就会接着运行*task2*.达到并发的效果.如果运行一个阻塞任务,则该线程下的所有的其他task都不会执行(比如sleep(10000)，除非用asyncio.sleep()).在一个线程定义的coro,不能在另外线程的event-loop中被调用.
 
 
 #### baseEventloop源码

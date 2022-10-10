@@ -1,6 +1,7 @@
 ## 协程函数。
-在python中,通过**async**关键字可以定义一个协程函数,每个协程函数必须包含一个**await**语句,表示等待一个I/O事件,由**yield/yield from**的学习可知,await的伪代码相当于**yield from**,此时会把函数挂起,直到下次调用send()方法激活,在次期间程序的执行交换给对应的**event-loop**。**async**定义的函数相当于做了一层**CoroWrapper**的封装,源码和注释如下:
-```python
+在python中,通过**async**关键字可以定义一个协程函数,每个协程函数必须包含一个**await**语句,表示等待一个I/O事件,由**yield/yield from**的学习可知,await的伪代码相当于**yield from**,此时会把函数挂起,直到下次调用send()方法激活,在次期间程序的执行交换给对应的**event-loop**。
+<!-- **async**定义的函数相当于做了一层**CoroWrapper**的封装,源码和注释如下:
+```python 
 class CoroWrapper:
     # Wrapper for coroutine object in _DEBUG mode.
 
@@ -71,11 +72,116 @@ class CoroWrapper:
                 msg += tb.rstrip()
             logger.error(msg)
 ```
+-->
 正是利用了生成器能将执行的函数挂起的特性,当遇到函数耗时的I/0操作时,能够直接调用**await**(yield from)将程序的执行权交还给event-loop,event-loop再去对应执行其他的coro函数,避免空等待I/0操作.,而当I/O操作完成时,event-loop又会调用对应的send()方法,驱动其继续执行.
+
+### 一个协程的执行过程(调用asyncio.run运行).
+假设我们定义了一个协程函数**mock_sleep**,然后用**asyncio.run(func)**去运行(协程函数只能用事件循环来驱动运行):       
+
+```python
+
+async def mock_sleep():
+    for i in range(10):
+        print(">>>> 第{i}次执行")
+        await asyncio.sleep(1) # yield from generator
+
+asyncio.run(mock_sleep())
+```     
+- 1. 对于一个协程/generator等支持异步的对象,asyncio都会把其封装一个**task**(future)对象.**asyncio.run**方法会初始化以一个事件循环,并运行该事件循环,直到该**task**执行完成:  
+```python
+
+def run(main, *, debug=None):
+    # 如果当前事件循环在运行,则不能通过run方法来启动运行协程
+    if events._get_running_loop() is not None:
+        raise RuntimeError(
+            "asyncio.run() cannot be called from a running event loop")
+
+    if not coroutines.iscoroutine(main): # 执行的函数必须是一个协程
+        raise ValueError("a coroutine was expected, got {!r}".format(main))
+    loop = events.new_event_loop()
+    try:
+        events.set_event_loop(loop)
+        if debug is not None:
+            loop.set_debug(debug)
+        ## 启动事件循环,直到协程(main)运行完成
+        return loop.run_until_complete(main)
+    finally:
+        try:
+            # 运行完成,清理event-loop中剩余的其他数据
+            _cancel_all_tasks(loop)
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.run_until_complete(loop.shutdown_default_executor())
+        finally:
+            events.set_event_loop(None)
+            loop.close()
+
+```
+- 2. **loop.run_until_complete(coro)**是event-loop的一个方法,表示运行coro,直到其运行完成:       
+```python
+
+    def run_until_complete(self, future):
+        self._check_closed()
+        self._check_running()
+
+        new_task = not futures.isfuture(future)
+        # 把core封装成一个task（继承自future）对象
+        future = tasks.ensure_future(future, loop=self)
+            ...
+            # _run_until_complete_cb方法:停止事件循环,只要core执行完成,即停止event-loop,所以将其作为回调函数
+        future.add_done_callback(_run_until_complete_cb)
+        try:
+            self.run_forever() # 开始运行事件循环，下面会提到 
+        except:
+            if new_task and future.done() and not future.cancelled():
+                future.exception()
+            raise
+        finally:
+            future.remove_done_callback(_run_until_complete_cb)
+        if not future.done():
+            raise RuntimeError('Event loop stopped before Future completed.')
+        # 返回运行的结果
+        return future.result()
+
+```
+
+- 3. **tasks.ensure_future(future, loop)**:把协程封装成一个task(future)对象,并注册到对应的event-loop里面:           
+```python
+
+def ensure_future(coro_or_future, *, loop=None):
+
+    if coroutines.iscoroutine(coro_or_future):
+        if loop is None:
+            loop = events.get_event_loop()
+        task = loop.create_task(coro_or_future) # 这里是关键,相当把协程函数封装成task对象并注册到 event-loop里面
+        if task._source_traceback:
+            del task._source_traceback[-1]
+        return task
+    elif futures.isfuture(coro_or_future):
+        if loop is not None and loop is not futures._get_loop(coro_or_future):
+            raise ValueError('The future belongs to a different loop than '
+                            'the one specified as the loop argument')
+        return coro_or_future
+    elif inspect.isawaitable(coro_or_future):
+        return ensure_future(_wrap_awaitable(coro_or_future), loop=loop)
+    else:
+        raise TypeError('An asyncio.Future, a coroutine or an awaitable is '
+                        'required')
+
+
+```
+总的来说,当定义了一个**async**函数后,函数本身就相当于一个生成器,利用生成器可以挂起的特点,实现当遇到耗时I/O的时候，能够让出执行权，每个**async**定义的函数会被封装成对应的**future(task)**对象.通过event-loop来驱动(调用的task.__step())
+
+
+
 
 
 ## Handle和TimeHandle
+handle和timeHandle是对coro的进一步封装.是event-loop的最终执行对象.对于即可执行的coro.会被封装成对应的handle,而对于要延迟执行的coro,会被封装成对应的TimeHandler对象.         
+Handle和TimeHandler的源码和注释如下:    
+```python
 
+
+```
 
 
 
@@ -506,13 +612,6 @@ class BaseEventLoop(events.AbstractEventLoop):
             handle._scheduled = False
             self._ready.append(handle)
 
-        # This is the only place where callbacks are actually *called*.
-        # All other places just add them to ready.
-        # Note: We run all currently scheduled callbacks, but not any
-        # callbacks scheduled by callbacks run this time around --
-        # they will be run the next time (after another I/O poll).
-        # Use an idiom that is thread-safe without using locks.
-
         # 运行ready中的所有任务
         ntodo = len(self._ready)
         for i in range(ntodo):
@@ -534,9 +633,6 @@ class BaseEventLoop(events.AbstractEventLoop):
             else:
                 handle._run()
         handle = None  # Needed to break cycles when an exception occurs.
-
-
-
 
 ```
 

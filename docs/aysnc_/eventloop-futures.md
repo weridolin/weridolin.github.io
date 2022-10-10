@@ -181,21 +181,6 @@ def ensure_future(coro_or_future, *, loop=None):
 - 2. 因为**mock_sleep**要等到**asyncio.sleep**执行完成才会继续往下执行.所以将**mock_sleep**的唤醒方法**wake**(mock_sleep被封装成一个Task类,wake为Task类中的方法)添加到**asyncio.sleep**（await XX:返回一个future对象）的执行完成回调里面(调用fut.add_done_callback)。
 - 3 **asyncio.sleep**执行完,执行对应的回调函数**__wake**,将**mock_sleep**唤醒,**mock_sleep**继续执行。
 
-
-
-
-
-
-## Handle和TimeHandle
-handle和timeHandle是对coro的进一步封装.是event-loop的最终执行对象.对于即可执行的coro.会被封装成对应的handle,而对于要延迟执行的coro,会被封装成对应的TimeHandler对象.         
-Handle和TimeHandler的源码和注释如下:    
-```python
-
-
-```
-
-
-
 ## eventloop
 事件循环是Python异步编程中非常重要的概念,一般每个线程对应着``一个``事件循环,并且控制该线程中所有的协程/异步任务的运行。比如当前线程中有task1,task2,注册到当前线程的eventLoop中.当task1运行遇到I/O操作时，运行控制权会交还给该线程的事件循环*eventLoop*，该线程对应的事件循环就会接着运行*task2*.达到并发的效果.如果运行一个阻塞任务,则该线程下的所有的其他task都不会执行(比如sleep(10000)，除非用asyncio.sleep()).在一个线程定义的coro,不能在另外线程的event-loop中被调用.
 
@@ -233,7 +218,7 @@ class BaseEventLoop(events.AbstractEventLoop):
 
         # A weak set of all asynchronous generators that are
         # being iterated by the loop.
-        self._asyncgens = weakref.WeakSet() # 储存注册到该事件循环的所有的 generator
+        self._asyncgens = weakref.WeakSet() # 储存注册到该事件循环的所有的 generator,即为所有task
         # Set to True when `loop.shutdown_asyncgens` is called.
         self._asyncgens_shutdown_called = False # 停止所有的generator
         # Set to True when `loop.shutdown_default_executor` is called.
@@ -255,7 +240,11 @@ class BaseEventLoop(events.AbstractEventLoop):
         self._asyncgens.add(agen)
 
     async def shutdown_asyncgens(self):
-        """Shutdown all active asynchronous generators."""
+        """
+            Shutdown all active asynchronous generators.
+            关闭所有的已经注册到该event-loop的所有tasks
+        
+        """
         self._asyncgens_shutdown_called = True
 
         if not len(self._asyncgens):
@@ -281,7 +270,7 @@ class BaseEventLoop(events.AbstractEventLoop):
                 })
 
     async def shutdown_default_executor(self):
-        """Schedule the shutdown of the default executor."""
+        """关闭默认的执行线程池"""
         self._executor_shutdown_called = True
         if self._default_executor is None:
             return
@@ -304,8 +293,7 @@ class BaseEventLoop(events.AbstractEventLoop):
         if self.is_running():
             raise RuntimeError('This event loop is already running')
         if events._get_running_loop() is not None:
-            raise RuntimeError(
-                'Cannot run the event loop while another loop is running')
+            raise RuntimeError('Cannot run the event loop while another loop is running')
 
     def run_forever(self):
         """Run until stop() is called."""
@@ -371,54 +359,6 @@ class BaseEventLoop(events.AbstractEventLoop):
 
         return future.result()
 
-    def stop(self): 
-        # 停止事件循环
-        """Stop running the event loop.
-
-        Every callback already scheduled will still run.  This simply informs
-        run_forever to stop looping after a complete iteration.
-        """
-        self._stopping = True
-
-    def close(self):
-        """Close the event loop.
-
-        This clears the queues and shuts down the executor,
-        but does not wait for the executor to finish.
-
-        The event loop must not be running.
-        """
-        if self.is_running():
-            raise RuntimeError("Cannot close a running event loop")
-        if self._closed:
-            return
-        if self._debug:
-            logger.debug("Close %r", self)
-        self._closed = True
-        self._ready.clear()
-        self._scheduled.clear()
-        self._executor_shutdown_called = True
-        executor = self._default_executor
-        if executor is not None:
-            self._default_executor = None
-            executor.shutdown(wait=False)
-
-    def is_closed(self):
-        """Returns True if the event loop was closed."""
-        return self._closed
-
-    def is_running(self):
-        """Returns True if the event loop is running."""
-        return (self._thread_id is not None)
-
-    def time(self):
-        """Return the time according to the event loop's clock.
-
-        This is a float expressed in seconds since an epoch, but the
-        epoch, precision, accuracy and drift are unspecified and may
-        differ per event loop.
-        """
-        return time.monotonic()
 
     def call_later(self, delay, callback, *args, context=None):
         """Arrange for a callback to be called at a given time.
@@ -478,16 +418,6 @@ class BaseEventLoop(events.AbstractEventLoop):
             del handle._source_traceback[-1]
         return handle
 
-    def _check_callback(self, callback, method):
-        if (coroutines.iscoroutine(callback) or
-                coroutines.iscoroutinefunction(callback)):
-            raise TypeError(
-                f"coroutines cannot be used with {method}()")
-        if not callable(callback):
-            raise TypeError(
-                f'a callable object was expected by {method}(), '
-                f'got {callback!r}')
-
     def _call_soon(self, callback, args, context):
         ## 立马把callback添加到 _ready 列表，最快可以在下次遍历ready列表就执行
         handle = events.Handle(callback, args, self, context)
@@ -495,23 +425,6 @@ class BaseEventLoop(events.AbstractEventLoop):
             del handle._source_traceback[-1]
         self._ready.append(handle) # ready普通队列,先进先出
         return handle
-
-    def _check_thread(self):
-        """Check that the current thread is the thread running the event loop.
-
-        Non-thread-safe methods of this class make this assumption and will
-        likely behave incorrectly when the assumption is violated.
-
-        Should only be called when (self._debug == True).  The caller is
-        responsible for checking this condition for performance reasons.
-        """
-        if self._thread_id is None:
-            return
-        thread_id = threading.get_ident()
-        if thread_id != self._thread_id:
-            raise RuntimeError(
-                "Non-thread-safe operation invoked on an event loop other "
-                "than the current one")
 
     def call_soon_threadsafe(self, callback, *args, context=None):
         """Like call_soon(), but thread-safe."""
@@ -559,21 +472,14 @@ class BaseEventLoop(events.AbstractEventLoop):
             self._timer_cancelled_count += 1
 
     def _run_once(self):
-        """Run one full iteration of the event loop.
-
-        This calls all currently ready callbacks, polls for I/O,
-        schedules the resulting callbacks, and finally schedules
-        'call_later' callbacks.
-        """
-
         ## 两个队列  self._scheduled是存放延迟执行的任务的队列. 
         ##  self._ready 存放的是即将要执行的队列
         sched_count = len(self._scheduled)
+
+        # _scheduled的长度不是无限的.
         if (sched_count > _MIN_SCHEDULED_TIMER_HANDLES and
             self._timer_cancelled_count / sched_count >
                 _MIN_CANCELLED_TIMER_HANDLES_FRACTION):
-            # Remove delayed calls that were cancelled if their number
-            # is too high
             new_scheduled = []
 
             ## 先过滤掉已经被取消的task
@@ -583,11 +489,11 @@ class BaseEventLoop(events.AbstractEventLoop):
                 else:
                     new_scheduled.append(handle)
 
-            heapq.heapify(new_scheduled) # 优先队列
+            heapq.heapify(new_scheduled) # 优先队列,按时间排序的最小堆
             self._scheduled = new_scheduled
             self._timer_cancelled_count = 0
         else:
-            # 过滤掉所有cancelled状态的任务
+        # 从待执行任务队列中移除所有cancelled状态的任务
             while self._scheduled and self._scheduled[0]._cancelled:
                 self._timer_cancelled_count -= 1
                 handle = heapq.heappop(self._scheduled)
@@ -599,20 +505,18 @@ class BaseEventLoop(events.AbstractEventLoop):
             timeout = 0
 
         elif self._scheduled: 
-            # _scheduled[0]其实就是最早要执行的任务，（优先队列,按执行时间排序）
+            # _scheduled[0]其实就是最早要执行的任务.（优先队列,按执行时间排序）
             when = self._scheduled[0]._when
             timeout = min(max(0, when - self.time()), MAXIMUM_SELECT_TIMEOUT)
 
-
-
-        # windows 上面是利用select IO模型来驱动的,这个子类实现。基类主要实现回调的处理
-        # 如果协程里面有I/O操作,当完成触发事件后,会在这里返回
+        # windows上面是利用select IO模型来驱动的,这个子类实现。基类主要实现回调的处理
+        # 如果协程里面有I/O操作,当完成触发事件后,会在这里返回 TODO
         event_list = self._selector.select(timeout)
         self._process_events(event_list)
 
-
-        # 把self._scheduled中所有到期需要处理的task弹出并添加到 ready队列，并执行
-        # 因为 scheduled是一个优先队列，只要找到开始时间不必当前时间大的为止，后面肯定都是当前时间之后执行的
+        # 把self._scheduled中所有到期需要处理的task弹出并添加到 ready队列,并执行
+        # 因为 scheduled是一个优先队列,只要找到开始时间不必当前时间大的为止,
+        # 后面肯定都是当前时间之后执行的
         end_time = self.time() + self._clock_resolution
         while self._scheduled:
             handle = self._scheduled[0]
@@ -621,6 +525,7 @@ class BaseEventLoop(events.AbstractEventLoop):
                 break
             handle = heapq.heappop(self._scheduled)
             handle._scheduled = False
+            # 把
             self._ready.append(handle)
 
         # 运行ready中的所有任务
@@ -648,10 +553,24 @@ class BaseEventLoop(events.AbstractEventLoop):
 ```
 
 - *BaseEventLoop*中主要有两个比较重要的属性，*scheduled*:主要是记录一些延迟的待执行(非马上执行)的任务(为最小堆堆的数据结构，优先队列，按照执行时间排序).*ready*主要是才存放当前可以执行的任务(不需要延时)。
+
 - *event loop*每次循环都会去做从*scheduled* 找出所有已经需要执行的*task*(既满足执行时间小于当前时间的任务)，添加到*ready*队列中.接着会执行完*ready*中所有待执行的任务. 
-<!-- - *scheduled*,*ready*中存放的并非异步任务，而是对应的回调函数，回调函数会被封装成*handle*对象(asyncio.event.py) -->
+
 - 所有的有异步任务都会通过*asyncgen_firstiter_hook*方法添加到*asyncgens*属性里面
 
+- 往event-loop中添加任务,当任务不需要延时执行时,调用**loop.call_soon**,把函数添加到loop._ready队列,loop会在下次循环执行,当任务需要延迟执行时,往**loop._shceduled**优先队列种添加该任务.
+
+- event-loop添加的任务类型都被封装成为 Handler/TimeHandler封装后的对象，对于Task封装了协程后的对象来说，此时执行的是task.__step()方法，即相当于 Handler.run --> task.__step()
+
+
+
+## Handle和TimeHandle
+handle和timeHandle是对coro的进一步封装.是event-loop的最终执行对象.对于即可执行的coro.会被封装成对应的handle,而对于要延迟执行的coro,会被封装成对应的TimeHandler对象.         
+Handle和TimeHandler的源码和注释如下:    
+```python
+
+
+```
 
 
 

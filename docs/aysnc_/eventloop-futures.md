@@ -78,7 +78,7 @@ class CoroWrapper:
 ### 一个协程的执行过程(调用asyncio.run运行).
 
 #### 运行前的处理
-假设我们定义了一个协程函数**mock_sleep**,然后用**asyncio.run(func)**去运行(协程函数只能用事件循环来驱动运行):       
+假设我们定义了一个协程函数**mock_sleep**,然后用**asyncio.run**去运行(协程函数只能用事件循环来驱动运行):       
 
 ```python
 
@@ -89,7 +89,7 @@ async def mock_sleep():
 
 asyncio.run(mock_sleep())
 ```     
-- 1. 对于一个协程/generator等支持异步的对象,asyncio都会把其封装一个**task**(future)对象.**async**io.run**方法会初始化以一个事件循环,并运行该事件循环,直到该**task**执行完成:  
+- 1. 对于一个协程/generator等支持异步的对象,asyncio都会把其封装一个**task**(future)对象.**async**方法会初始化一个事件循环,并运行该事件循环,直到该**task**执行完成:  
 ```python
 
 def run(main, *, debug=None):
@@ -118,7 +118,8 @@ def run(main, *, debug=None):
             loop.close()
 
 ```
-- 2. **loop.run_until_complete(coro)**是event-loop的一个方法,表示运行coro,直到其运行完成:       
+
+- 2. **loop.run_until_complete**是event-loop的一个方法,表示运行coro,直到其运行完成:       
 ```python
 
     def run_until_complete(self, future):
@@ -133,7 +134,7 @@ def run(main, *, debug=None):
         future.add_done_callback(_run_until_complete_cb)
         try:
             self.run_forever() # 开始运行事件循环，下面会提到 
-        except:
+        except: 
             if new_task and future.done() and not future.cancelled():
                 future.exception()
             raise
@@ -145,6 +146,7 @@ def run(main, *, debug=None):
         return future.result()
 
 ```
+
 
 - 3. **tasks.ensure_future(future, loop)**:把协程封装成一个task(future)对象,并注册到对应的event-loop里面:           
 ```python
@@ -171,12 +173,15 @@ def ensure_future(coro_or_future, *, loop=None):
 
 
 ```
+
 总的来说,当定义了一个**async**函数后,函数本身就相当于一个生成器,利用生成器可以挂起的特点,实现当遇到耗时I/O的时候，能够让出执行权，每个**async**定义的函数会被封装成对应的**future(task)**对象.通过event-loop来驱动(调用的task.__step())
 
 #### 开始运行
-- 1. 现在开始运行**mock_sleep**,由于在初始化task时,会直接预激活1次，调用一次loop.call_soon.协程会运行到一个yield处返回,即运行到**await asyncio.sleep(1)**,此时返回的是一个future对象.代表的是**asyncio.sleep()**的执行结果.
-- 2. 因为**mock_sleep**要等到**asyncio.sleep()**执行完成才会继续往下执行.所以将**mock_sleep**的唤醒方法**__wake**(Task类的方法)添加到**asyncio.sleep()**（future）的执行完成回调里面(fut.add_done_callback)。
-- 3 **asyncio.sleep()**执行完,执行对应的回调函数**__wake**,将**mock_sleep**唤醒,**mock_sleep**继续执行。
+- 1. 现在开始运行**mock_sleep**,由于在初始化task时,会直接预激活1次，调用一次loop.call_soon.协程会运行到一个yield处返回,即运行到**await asyncio.sleep(1)**,此时返回的是一个future对象.代表的是**asyncio.sleep**的执行结果.
+- 2. 因为**mock_sleep**要等到**asyncio.sleep**执行完成才会继续往下执行.所以将**mock_sleep**的唤醒方法**wake**(mock_sleep被封装成一个Task类,wake为Task类中的方法)添加到**asyncio.sleep**（await XX:返回一个future对象）的执行完成回调里面(调用fut.add_done_callback)。
+- 3 **asyncio.sleep**执行完,执行对应的回调函数**__wake**,将**mock_sleep**唤醒,**mock_sleep**继续执行。
+
+
 
 
 

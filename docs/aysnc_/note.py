@@ -86,23 +86,20 @@ import logging
 
 
 ################################# asyncio #############################333
-
 import asyncio
-from types import coroutine
 loop  = asyncio.get_event_loop()
 loop.run_in_executor
 print(loop)
 async def mock_sleep():
     for i in range(10):
         print(f">>>> 第{i}次执行")
-        # print(">>> ready",loop._ready,">>> scheduled",loop._scheduled)
         await asyncio.sleep(1)
 
 if __name__=="__main__":
     # print(loop._ready,loop._scheduled)
-    # asyncio.run(mock_sleep())
-    t = mock_sleep()
-    t.send(None)
+    asyncio.run(mock_sleep())
+    # t = mock_sleep()
+    # t.send(None)
 
 ###################################### multiple process
 # from multiprocessing import Pipe, Process

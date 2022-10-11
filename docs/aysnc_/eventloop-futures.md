@@ -837,7 +837,7 @@ def set_result(self, result):
 
 
 ## task
-task是对*协程*多加了一层封装.继承了*asyncio.futures*,通过方法*__step()*方法驱动*协程*的运行,直接看源码
+task是对*协程*多加了一层封装.继承了*asyncio.futures*,通过方法*__step()*方法驱动*协程*的运行,是python event-loop运行的task对象,直接看源码👇:         
 
 ```python 
 class Task:
@@ -847,8 +847,6 @@ class Task:
         if self._source_traceback:
             del self._source_traceback[-1]
         if not coroutines.iscoroutine(coro):
-            # raise after Future.__init__(), attrs are required for __del__
-            # prevent logging for pending task in __del__
             self._log_destroy_pending = False
             raise TypeError(f"a coroutine was expected, got {coro!r}")
 
@@ -862,9 +860,9 @@ class Task:
         self._coro = coro
         self._context = contextvars.copy_context()
 
-        ## 初始化时添加到 eventloop的 _ready队列
+        ## 初始化时添加到 eventloop的 _ready队列,这里起到一个预激活的作用
         self._loop.call_soon(self.__step, context=self._context)
-        _register_task(self)
+        _register_task(self) # 注册到一个全局的列表
     
     ......
 
@@ -909,6 +907,7 @@ class Task:
         except BaseException as exc:
             super().set_exception(exc)
         else:
+             # 任务还没运行完，调用了 await XX 注意这是 result中的 _asyncio_future_blocking 属性
             blocking = getattr(result, '_asyncio_future_blocking', None)
             if blocking is not None:
                 # Yielded Future must come from Future.__iter__().
@@ -921,24 +920,31 @@ class Task:
                 elif blocking:
                     if result is self:
                         new_exc = RuntimeError(
-                            f'Task cannot await on itself: {self!r}')
+                            f'Task cannot await on itself: {self!r}') # 不能在 async func 中又await func
                         self._loop.call_soon(
                             self.__step, new_exc, context=self._context)
                     else:
+                        # callback是在future set result/exception时再去执行的
+                        # 例如: async def mock_sleep():
+                        #           for i in range(10):
+                        #               print(f">>>> 第{i}次执行")
+                        #               await asyncio.sleep(1)
+                        # 这里的 result 代表的是 asyncio.sleep(x)执行结果的 future,因为 mock_sleep 要等到 asyncio.sleep(x)
+                        # 执行完成.再去唤醒.所以把封装了mock_sleep的task对象中的__wake()方法作为 future(asyncio.sleep())执行完成后的
+                        # 回调.(通过调用future.add_done_callback()).即可以做到在future(asyncio.sleep())完成后唤醒 mock_sleep 继续往下运行 
                         result._asyncio_future_blocking = False
-                        result.add_done_callback( ## callback是在set result/exception时再去执行的
-                            self.__wakeup, context=self._context)
-                        self._fut_waiter = result
+                        result.add_done_callback(self.__wakeup, context=self._context)
+                        self._fut_waiter = result  ## 协程中调用 await xxx, result 就是 await xxx 返回的future
                         if self._must_cancel:
                             if self._fut_waiter.cancel(
                                     msg=self._cancel_message):
                                 self._must_cancel = False
                 else:
+                    # 调用 await 必须返回一个 future对象, 而 future中 __iter__ 被赋值为 __await__。调用yield from 也是调用的 __await__ 返回的是一个future对象
                     new_exc = RuntimeError(
                         f'yield was used instead of yield from '
                         f'in task {self!r} with {result!r}')
-                    self._loop.call_soon(
-                        self.__step, new_exc, context=self._context)
+                    self._loop.call_soon(self.__step, new_exc, context=self._context)
 
             elif result is None:
                 # Bare yield relinquishes control for one event loop iteration.
@@ -953,13 +959,13 @@ class Task:
             else:
                 # Yielding something else is an error.
                 new_exc = RuntimeError(f'Task got bad yield: {result!r}')
-                self._loop.call_soon(
-                    self.__step, new_exc, context=self._context)
+                self._loop.call_soon(self.__step, new_exc, context=self._context)
         finally:
             _leave_task(self._loop, self)
             self = None  # Needed to break cycles when an exception occurs.
 
     def __wakeup(self, future):
+        # 这个方法主要当协程中用了 **await fut** 语句时,被挂起后,添加到fut的callback,fut可以在完成时调用重新唤醒这个协程. 
         try:
             future.result()
         except BaseException as exc:
@@ -977,9 +983,9 @@ class Task:
 
 
 ```
-- 初始化task时,将*task.__step*添加到绑定的*eventLoop*的*ready*队列上(调用call_soon)
-- *eventLoop*开始运行,每次都会去运行*ready*中的*task*，即运行*task.__step*
-- *task.__step*开始运行，运行到I/O操作(该I/O操作必须为异步,否则不会让出控制权)开始让出控制权.判断是否运行完成/异常.是的话把回调函数再添加到*_ready*队列里面下次运行.如果返回的result为None,说明异步函数还没有运行完成(函数运行完成会触发*stopIteration*).直接把*__step*添加到*ready*队列运行.
+- 初始化task时,将*task.__step*添加到绑定的*eventLoop*的*ready*队列上(调用call_soon),这里其实就是对协程一个预激活,运行到第一个yield处挂起.
+- *eventLoop*开始运行,每次会先去延时任务队列_scheduled中获取到该时间点需要执行的任务,添加到_ready队列中,接着会去运行_ready队列中的所有任务.
+- *task.__step*开始运行，遇到协程函数中的await语句处,拿到await返回的future,将自身的唤醒函数*_wakeup()*添加到fut的回调函数队列callback里面.然后当前结束当前step.等到future执行完成后,fut.callback列表中的callback函数会被调用,即为执行_wakeup函数,对应的协程会继续执行。
 
 
 ## loop.run_in_executor     
@@ -988,8 +994,6 @@ class Task:
 
     ## baseEventLoop
     ...
-
-
     def _check_callback(self, callback, method):
         if (coroutines.iscoroutine(callback) or
                 coroutines.iscoroutinefunction(callback)):

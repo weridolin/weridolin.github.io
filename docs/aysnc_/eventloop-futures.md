@@ -186,8 +186,7 @@ def ensure_future(coro_or_future, *, loop=None):
 
 
 #### baseEventloop源码
-
-注释如下
+源码和注释如下:         
 
 ```python
 ##  asynico.base_envent.py 这里只是抄送了一部分
@@ -556,12 +555,16 @@ class BaseEventLoop(events.AbstractEventLoop):
 
 - *event loop*每次循环都会去做从*scheduled* 找出所有已经需要执行的*task*(既满足执行时间小于当前时间的任务)，添加到*ready*队列中.接着会执行完*ready*中所有待执行的任务. 
 
-- 所有的有异步任务都会通过*asyncgen_firstiter_hook*方法添加到*asyncgens*属性里面
+- 所有的有异步任务都会通过*asyncgen_firstiter_hook*方法添加到*asyncgens*属性里面.
 
-- 往event-loop中添加任务,当任务不需要延时执行时,调用**loop.call_soon**,把函数添加到loop._ready队列,loop会在下次循环执行,当任务需要延迟执行时,往**loop._shceduled**优先队列种添加该任务.
+- event-loop添加的任务类型都被封装成为 Handler/TimeHandler封装后的对象，对于Task封装了协程后的对象来说，此时执行的是task.__step()方法，即相当于 Handler.run --> task.__step().
 
-- event-loop添加的任务类型都被封装成为 Handler/TimeHandler封装后的对象，对于Task封装了协程后的对象来说，此时执行的是task.__step()方法，即相当于 Handler.run --> task.__step()
+- 往event-loop中添加任务,当任务不需要延时执行时,调用**loop.call_soon**,把函数添加到loop._ready队列,loop会在下次循环执行,当任务需要延迟执行时,往**loop._shceduled**优先队列种添加该任务.当想运行一个**非协程函数**时,可以通过这个方法加入到时间循环里面.
 
+- event-loop.create_task:创建一个任务,并且添加到对应的event-loop里面.当想运行一个**协程函数**时,可以通过这个方法加入到事件循环里面运行.
+
+##### 总结一下
+事件循环是python异步里面的执行器.自身拥有一个存放延时任务的优先队列(_scheduled)和马上要执行的任务的就绪队列(_ready).启动event-loop后,会不断进行一个: []
 
 
 ## Handle和TimeHandle
@@ -571,188 +574,6 @@ Handle和TimeHandler的源码和注释如下:
 
 
 ```
-
-
-
-
-
-#### 添加事件监听
-- call_later(self, delay, callback, *args, context=None):   
-需要延迟执行的对应的callback回调.delay为延迟多少秒执行.会被添加到*loop._scheduled*队列.*asyncio.sleep*的实现方式就是调用了call_later. 
-
-```python
-
-async def sleep(delay, result=None, *, loop=None):
-    """Coroutine that completes after a given time (in seconds)."""
-    if delay <= 0:
-        await __sleep0()
-        return result
-
-    if loop is None:
-        loop = events.get_running_loop()
-    else:
-        warnings.warn("The loop argument is deprecated since Python 3.8, ""and scheduled for removal in Python 3.10.",
-                      DeprecationWarning, stacklevel=2)
-    future = loop.create_future()
-    # 延迟执行，添加到 loop._scheduled 队列
-    h = loop.call_later(delay,
-                        futures._set_result_unless_cancelled,
-                        future, result)
-    # print(">>> ready",loop._ready,">>> scheduled",loop._scheduled)
-    try:
-        # 等到执行完成,
-        return await future
-    finally:
-        h.cancel()
-```
-
-- call_soon:
-马上执行，调用*call_soon*会把回调添加到*loop._ready*队列，会在下次遍历*_ready*时马上去执行.
-
-
-
-##### loop.run_forever()
-
-```python
-    def __init__(self, coro, *, loop=None, name=None):
-        super().__init__(loop=loop)
-        if self._source_traceback:
-            del self._source_traceback[-1]
-        if not coroutines.iscoroutine(coro):
-            # raise after Future.__init__(), attrs are required for __del__
-            # prevent logging for pending task in __del__
-            self._log_destroy_pending = False
-            raise TypeError(f"a coroutine was expected, got {coro!r}")
-
-        if name is None:
-            self._name = f'Task-{_task_name_counter()}'
-        else:
-            self._name = str(name)
-
-        self._must_cancel = False
-        self._fut_waiter = None
-        self._coro = coro
-        self._context = contextvars.copy_context()
-
-        self._loop.call_soon(self.__step, context=self._context)
-        _register_task(self)
-
-    ...
-    def run_forever(self):
-        """Run until stop() is called."""
-        self._check_closed()
-        self._check_running()
-        self._set_coroutine_origin_tracking(self._debug)
-        self._thread_id = threading.get_ident()
-
-        old_agen_hooks = sys.get_asyncgen_hooks()
-        ## 设置HOOK. firstiter用于添加到self._asyncgens
-        sys.set_asyncgen_hooks(firstiter=self._asyncgen_firstiter_hook,
-                               finalizer=self._asyncgen_finalizer_hook)
-        try:
-            # 设置loop为全局的事件循环,这里时一个进程对应一个事件循环
-            events._set_running_loop(self)
-            while True:
-                self._run_once()
-                if self._stopping:
-                    break
-        finally:
-            self._stopping = False
-            self._thread_id = None
-            events._set_running_loop(None)
-            self._set_coroutine_origin_tracking(False)
-            sys.set_asyncgen_hooks(*old_agen_hooks)
-    ...
-
-    def _run_once(self):
-        """Run one full iteration of the event loop.
-
-        This calls all currently ready callbacks, polls for I/O,
-        schedules the resulting callbacks, and finally schedules
-        'call_later' callbacks.
-        """
-
-        ## 两个队列  self._scheduled是存放延迟执行的任务的队列. self._ready 存放的是即将要执行的队列
-        sched_count = len(self._scheduled)
-        if (sched_count > _MIN_SCHEDULED_TIMER_HANDLES and
-            self._timer_cancelled_count / sched_count >
-                _MIN_CANCELLED_TIMER_HANDLES_FRACTION):
-            # Remove delayed calls that were cancelled if their number
-            # is too high
-            new_scheduled = []
-            for handle in self._scheduled:
-                if handle._cancelled:
-                    handle._scheduled = False
-                else:
-                    new_scheduled.append(handle)
-
-            heapq.heapify(new_scheduled)
-            self._scheduled = new_scheduled
-            self._timer_cancelled_count = 0
-        else:
-            # 检测第一个任务是否为取消，是的话直接移除
-            # Remove delayed calls that were cancelled from head of queue.
-            while self._scheduled and self._scheduled[0]._cancelled:
-                self._timer_cancelled_count -= 1
-                handle = heapq.heappop(self._scheduled)
-                handle._scheduled = False
-
-        timeout = None
-        ## ready 里面有待处理的callback.表示这次循环有东西要处理
-        if self._ready or self._stopping:
-            timeout = 0
-        elif self._scheduled: # 这次循环没有待处理的callback,则检测延迟处理堆是否有到时间需要处理的任务
-            # Compute the desired timeout.
-            when = self._scheduled[0]._when
-            timeout = min(max(0, when - self.time()), MAXIMUM_SELECT_TIMEOUT)
-
-
-
-        # windows 上面是利用select IO模型来驱动的,这个子类实现。基类主要实现回调的处理
-        event_list = self._selector.select(timeout)
-        self._process_events(event_list)
-
-
-        # 把self._scheduled中所有到期需要处理的task弹出并添加到 ready队列，并执行
-        # Handle 'later' callbacks that are ready.
-        end_time = self.time() + self._clock_resolution
-        while self._scheduled:
-            handle = self._scheduled[0]
-            if handle._when >= end_time:
-                break
-            handle = heapq.heappop(self._scheduled)
-            handle._scheduled = False
-            self._ready.append(handle)
-
-        # This is the only place where callbacks are actually *called*.
-        # All other places just add them to ready.
-        # Note: We run all currently scheduled callbacks, but not any
-        # callbacks scheduled by callbacks run this time around --
-        # they will be run the next time (after another I/O poll).
-        # Use an idiom that is thread-safe without using locks.
-        ntodo = len(self._ready)
-        for i in range(ntodo):
-            ## 处理 _ready中所有完成的任务/callback
-            handle = self._ready.popleft()
-            if handle._cancelled:
-                continue
-            if self._debug:
-                try:
-                    self._current_handle = handle
-                    t0 = self.time()
-                    handle._run()
-                    dt = self.time() - t0
-                    if dt >= self.slow_callback_duration:
-                        logger.warning('Executing %s took %.3f seconds',
-                                    _format_handle(handle), dt)
-                finally:
-                    self._current_handle = None
-            else:
-                handle._run()
-        handle = None  # Needed to break cycles when an exception occurs.
-```
-run_forever其实就是不断去运行*run_once*，先检测*scheduled*中需要执行的任务添加到*ready*.接着selectIO模型对异步任务进行调用(`event_list = self._selector.select(timeout)self._process_events(event_list)`)，最后执行*ready*中待执行的callback.
-
 #### selectEventLoop
 *selectEventLoop*是基于SELECT IO模型的事件循环,主要用来*selector高级库*.继承于*BaseEventLoop*.直接看源码注释
 ```python
@@ -836,28 +657,140 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
 #### TODO
 
 ## asyncio.futures
-*future*在python异步编程中可以理解为一个异步任务的执行结果,所有的异步任务都是一个继承了*future*的对象，其提供了*result*,*add_done_callback*等方法提供调用.
+先看源码和一些注释👇:       
+
+```python
+## class Future
+class Future:
+    """This class is *almost* compatible with concurrent.futures.Future.
+
+    Differences:
+
+    - This class is not thread-safe.
+
+    - result() and exception() do not take a timeout argument and
+      raise an exception when the future isn't done yet.
+
+    - Callbacks registered with add_done_callback() are always called
+      via the event loop's call_soon().
+
+    - This class is not compatible with the wait() and as_completed()
+      methods in the concurrent.futures package.
+
+    (In Python 3.4 or later we may be able to unify the implementations.)
+    """
+
+    # Class variables serving as defaults for instance variables.
+    _state = _PENDING
+    _result = None
+    _exception = None
+    _loop = None
+    _source_traceback = None
+    _cancel_message = None
+    # A saved CancelledError for later chaining as an exception context.
+    _cancelled_exc = None
+
+    # This field is used for a dual purpose:
+    # - Its presence is a marker to declare that a class implements
+    #   the Future protocol (i.e. is intended to be duck-type compatible).
+    #   The value must also be not-None, to enable a subclass to declare
+    #   that it is not compatible by setting this to None.
+    # - It is set by __iter__() below so that Task._step() can tell
+    #   the difference between
+    #   `await Future()` or`yield from Future()` (correct) vs.
+    #   `yield Future()` (incorrect).
+    _asyncio_future_blocking = False # 当协程调用了 await future时, future会把该字段设置为True
+
+    __log_traceback = False
+
+    def __init__(self, *, loop=None):
+
+        if loop is None:
+            self._loop = events.get_event_loop()
+        else:
+            self._loop = loop
+        self._callbacks = [] # 存放该 future的回调方法,回调方法是在执行完成后才会被添加到loop里面去运行。
+        if self._loop.get_debug():
+            self._source_traceback = format_helpers.extract_stack(
+                sys._getframe(1))
+
+    _repr_info = base_futures._future_repr_info
+ 
+    def __schedule_callbacks(self):
+        # 运行fut的回调函数,其实就把所有回调函数添加到evene-loop里面
+        callbacks = self._callbacks[:]
+        if not callbacks:
+            return
+
+        self._callbacks[:] = []
+        for callback, ctx in callbacks:
+            self._loop.call_soon(callback, self, context=ctx)
+
+
+    def add_done_callback(self, fn, *, context=None):
+        if self._state != _PENDING:
+            self._loop.call_soon(fn, self, context=context)
+        else:
+            if context is None:
+                context = contextvars.copy_context()
+            self._callbacks.append((fn, context))
+
+    def remove_done_callback(self, fn):
+        # 移除fut中的回调方法
+        filtered_callbacks = [(f, ctx)
+                              for (f, ctx) in self._callbacks
+                              if f != fn]
+        removed_count = len(self._callbacks) - len(filtered_callbacks)
+        if removed_count:
+            self._callbacks[:] = filtered_callbacks
+        return removed_count
+
+
+    def set_result(self, result):
+        # 设置task的运行结果
+        if self._state != _PENDING:
+            raise exceptions.InvalidStateError(f'{self._state}: {self!r}')
+        self._result = result
+        self._state = _FINISHED
+        self.__schedule_callbacks() # 运行该task的中回调函数
+
+    def set_exception(self, exception):
+        # 运行结果出现异常，把异常赋值回 future
+        if self._state != _PENDING:
+            raise exceptions.InvalidStateError(f'{self._state}: {self!r}')
+        if isinstance(exception, type):
+            exception =exception ()
+        if type(exception) is StopIteration:
+            raise TypeError("StopIteration interacts badly with generators "
+                            "and cannot be raised into a Future")
+        self._exception = exception
+        self._state = _FINISHED
+        self.__schedule_callbacks() # 运行该task的中回调函数
+        self.__log_traceback = True
+
+    def __await__(self): 
+        ## await xxx 时调用，返回 future对象
+        if not self.done():
+            self._asyncio_future_blocking = True # 代表 await fut的调用方必须等到 该fut为done时才继续运行
+            yield self  
+        if not self.done():
+            raise RuntimeError("await wasn't used with future")
+        return self.result()  
+
+```
+- *future*在python异步编程中可以理解为一个异步任务的执行结果,所有的异步任务都是一个继承了*future*的对象，其提供了*result*,*add_done_callback*等方法提供调用.
+
 -  result():返回 Future 的结果。如果 Future 状态为 完成 ，并由 set_result() 方法设置一个结果（task的返回值），则返回这个结果。如果 Future 状态为完成 ，并由set_exception()方法设置一个异常(task运行异常)，那么这个方法会引发异常。如果Future已取消，方法会引发一个 CancelledError 异常。如果 Future 的结果还不可用，此方法会引发一个InvalidStateError异常。
 - 与*concurrent.futures.Future*类不同,asyncio.Future为可等待的对象*await future*
 
-## await future
-等待future执行完成.即*self._state*的状态为*finish*.  
+- 每个future对象都有一个回调函数列表(_callbacks),当future执行完成后,会把回调函数添加到对应的event-loop中执行.(就是把回调函数callback添加到loop._ready队列中)
+
+- 当我们编写协程函数时，如果在函数中使用了**await xxxx**,其实就是相当于在此处await一个Future对象(调用的__await__方法),直到future的状态为完成.future会以回调函数的方法去运行该函数对应的task中的wake方法,使得该函数会继续执行.
+
+- *await*其实就是相当于*yield from*.即在迭代器停止前会不断去迭代。具体可参考*yield from*的[伪代码逻辑](/docs/aysnc_/python-yield.md).*asyncio.sleep*就是一个典型的例子。
 
 ```python
-## future __await__
-
-def __await__(self):
-    if not self.done():
-        self._asyncio_future_blocking = True
-        yield self  # This tells Task to wait for completion.下次还是调用的 self.__await__
-    if not self.done():
-        raise RuntimeError("await wasn't used with future")
-    return self.result()  # May raise too.
-
-```
-*await*其实就是相当于*yield from*.即在迭代器停止前会不断去迭代。具体可参考*yield from*的[伪代码逻辑](/docs/aysnc_/python-yield.md).*asyncio.sleep*就是一个典型的例子。
-
-```python
+## asyncio.sleep
 
 async def sleep(delay, result=None, *, loop=None):
     """Coroutine that completes after a given time (in seconds)."""
@@ -877,9 +810,8 @@ async def sleep(delay, result=None, *, loop=None):
                         # 通过_set_result_unless_cancelled，设置future state来结束
                         futures._set_result_unless_cancelled, 
                         future, result)
-    # print(">>> ready",loop._ready,">>> scheduled",loop._scheduled)
     try:
-        return await future
+        return await future # 这里挂起该sleep函数,把程序的执行权交还给event loop,当future被设置为done时,会停止await(通过_set_result_unless_cancelled设置)
     finally:
         h.cancel()
 
@@ -887,15 +819,10 @@ def _set_result_unless_cancelled(fut, result):
     """Helper setting the result only if the future was not cancelled."""
     if fut.cancelled():
         return
-    fut.set_result(result)
+    fut.set_result(result) # 设置future的result 
 
-# class Future
 def set_result(self, result):
-    """Mark the future done and set its result.
 
-    If the future is already done when this method is called, raises
-    InvalidStateError.
-    """
     if self._state != _PENDING:
         raise exceptions.InvalidStateError(f'{self._state}: {self!r}')
     self._result = result
@@ -904,6 +831,8 @@ def set_result(self, result):
 
 ```
 - 通过调用*call_later*,将*set_result_unless_cancelled*设置为一个延时callback添加到*loop._scheduled*里面.在*set_result_unless_cancelled*执行前，*future*的状态始终不为*finish*.*await future*(相当于*yield from future*)也不会结束。当达到延时时间后，*set_result_unless_cancelled*被loop添加到*ready*并执行,此时*await future*执行结束（参考future.__await__）
+- 这里有个问题,调用了_set_result_unless_cancelled设置了future的result后，sleep函数是怎么被驱动往下运行的?当我们用**async**定义了一个协程函数后,并不是直接被丢到event-loop里面执行的,而是会被封装成一个Task对象(继承子future).当await一个future对象的时候,会把task.__wake()作为future的回调方法.future执行完成后,执行task.__wake(),继续运行该task,妙啊妙啊(ಥ _ ಥ)
+
 
 
 

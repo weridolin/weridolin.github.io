@@ -988,16 +988,13 @@ class Task:
 - *task.__step*开始运行，遇到协程函数中的await语句处,拿到await返回的future,将自身的唤醒函数*_wakeup()*添加到fut的回调函数队列callback里面.然后当前结束当前step.等到future执行完成后,fut.callback列表中的callback函数会被调用,即为执行_wakeup函数,对应的协程会继续执行。
 
 
-### 同步代码以异步方式运行:loop-executor
-event-loop提供了线程池运行的方式来运行我们写的同步的代码,默认采用的**concurrent.futures.ThreadPoolExecutor**.       
-
-
-## loop.run_in_executor     
+###   同步代码以异步方式运行:loop-executo    
 当*loop*运行一个阻塞的任务时.整个事件循环会阻塞，及当前的线程也会阻塞,对应的其他task也不会执行。要是想把一个阻塞的任务/或者同步代码编程异步,可以用*loop.run_in_executor*,以线程方式去运行，当前对应的事件循环也不会进入阻塞状态.源码如下:       
 
 ```python
 
     ## baseEventLoop
+class  BaseEventLoop:   
     ...
     def _check_callback(self, callback, method):
         if (coroutines.iscoroutine(callback) or
@@ -1012,7 +1009,7 @@ event-loop提供了线程池运行的方式来运行我们写的同步的代码,
     def run_in_executor(self, executor, func, *args):
         self._check_closed()
         if self._debug:
-            self._check_callback(func, 'run_in_executor')
+            self._check_callback(func, 'run_in_executor') # 先校验是不是协程，协程不能使用 线程池 来运行
         if executor is None:
             executor = self._default_executor
             # Only check when the default executor is being used
@@ -1023,8 +1020,8 @@ event-loop提供了线程池运行的方式来运行我们写的同步的代码,
                     thread_name_prefix='asyncio'
                 )
                 self._default_executor = executor
-        return futures.wrap_future(
-            executor.submit(func, *args), loop=self)
+        # executor.submit(func, *args) 返回一个 concurrent future,这不是一个可 awaitable对象.给加一层封装,封装成 async.future，一个可 awaitbale 对象
+        return futures.wrap_future(executor.submit(func, *args), loop=self)
     
     # 把 concurrent.futures.Future 封装成 awaitable的 asynico.future
     def wrap_future(future, *, loop=None):
@@ -1035,53 +1032,56 @@ event-loop提供了线程池运行的方式来运行我们写的同步的代码,
             f'concurrent.futures.Future is expected, got {future!r}'
         if loop is None:
             loop = events.get_event_loop()
-        new_future = loop.create_future()
-        _chain_future(future, new_future)
+        new_future = loop.create_future() # 初始化一个 asyncio.future和 线程池的 future绑定在一起.
+        _chain_future(future, new_future) # 绑定两个future.线程池的fut执行完成后,set到asyncio.future里面去
         return new_future
 
-    def _chain_future(source, destination):
-        """Chain two futures so that when one completes, so does the other.
 
-        The result (or exception) of source will be copied to destination.
-        If destination is cancelled, source gets cancelled too.
-        Compatible with both asyncio.Future and concurrent.futures.Future.
-        """
-        if not isfuture(source) and not isinstance(source,
-                                                concurrent.futures.Future):
-            raise TypeError('A future is required for source argument')
-        if not isfuture(destination) and not isinstance(destination,
-                                                        concurrent.futures.Future):
-            raise TypeError('A future is required for destination argument')
-        source_loop = _get_loop(source) if isfuture(source) else None
-        dest_loop = _get_loop(destination) if isfuture(destination) else None
+    # 
+def _chain_future(source, destination):
+    """Chain two futures so that when one completes, so does the other.
 
-        def _set_state(future, other):
-            ## 把线程运行完成的future.result赋值给 asynico.future实例*new_future*
-            if isfuture(future):
-                _copy_future_state(other, future)
+    The result (or exception) of source will be copied to destination.
+    If destination is cancelled, source gets cancelled too.
+    Compatible with both asyncio.Future and concurrent.futures.Future.
+    """
+    if not isfuture(source) and not isinstance(source,
+                                            concurrent.futures.Future):
+        raise TypeError('A future is required for source argument')
+    if not isfuture(destination) and not isinstance(destination,
+                                                    concurrent.futures.Future):
+        raise TypeError('A future is required for destination argument')
+    source_loop = _get_loop(source) if isfuture(source) else None
+    dest_loop = _get_loop(destination) if isfuture(destination) else None
+
+    def _set_state(future, other):
+        ## 把线程运行完成的future.result赋值给 asynico.future实例*new_future*中的result
+        if isfuture(future):
+            _copy_future_state(other, future)
+        else:
+            _set_concurrent_future_state(future, other)
+
+    def _call_check_cancel(destination):
+        ## 检测线程运行返回的结果是不是cancel
+        if destination.cancelled():
+            if source_loop is None or source_loop is dest_loop:
+                source.cancel()
             else:
-                _set_concurrent_future_state(future, other)
+                source_loop.call_soon_threadsafe(source.cancel)
 
-        def _call_check_cancel(destination):
-            ## 检测线程运行返回的结果是不是cancel
-            if destination.cancelled():
-                if source_loop is None or source_loop is dest_loop:
-                    source.cancel()
-                else:
-                    source_loop.call_soon_threadsafe(source.cancel)
+    def _call_set_state(source):
+        if (destination.cancelled() and
+                dest_loop is not None and dest_loop.is_closed()):
+            return
+        if dest_loop is None or dest_loop is source_loop:
+            _set_state(destination, source)
+        else:
+            dest_loop.call_soon_threadsafe(_set_state, destination, source)
 
-        def _call_set_state(source):
-            if (destination.cancelled() and
-                    dest_loop is not None and dest_loop.is_closed()):
-                return
-            if dest_loop is None or dest_loop is source_loop:
-                _set_state(destination, source)
-            else:
-                dest_loop.call_soon_threadsafe(_set_state, destination, source)
-
-        destination.add_done_callback(_call_check_cancel)
-        source.add_done_callback(_call_set_state) # 把线程池的函数执行完添加一个回调，把运行完成的结果赋值给asynico.future实例*new_future*
+    destination.add_done_callback(_call_check_cancel)
+    source.add_done_callback(_call_set_state) # 把线程池的函数执行完添加一个回调，把运行完成的结果赋值给asynico.future实例*new_future*
 ```
+
 - 因为线程里面运行的返回的是 *concurrent.futures.Future*实例,这是一个非*awaitable*对象,必须把其转换成一个可*awaitable*的*asynico.future*对象.这里采用的方式先创建一个*asynico.future*实例*new_future*,在把*concurrent.futures.Future*的运行结果赋给*new_future*。
 
 

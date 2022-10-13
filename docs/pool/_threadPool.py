@@ -1,9 +1,9 @@
-from concurrent.futures import ThreadPoolExecutor,as_completed
-
+from concurrent.futures import ThreadPoolExecutor,as_completed, thread
+import threading
 import time,datetime
 
 def task(seconds):
-    time.sleep(seconds)
+    time.sleep(10)
 
 
 if __name__ =="__main__":
@@ -19,3 +19,4 @@ if __name__ =="__main__":
         print(datetime.datetime.now())
         print(r)
         print(datetime.datetime.now())
+  

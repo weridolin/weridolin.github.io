@@ -535,19 +535,20 @@ def as_completed(fs, timeout=None):
             if timeout is None:
                 wait_timeout = None
             else:
-                wait_timeout = end_time - time.monotonic()
+                wait_timeout = end_time - time.monotonic() # 下次需要等待的时间
                 if wait_timeout < 0:
+                    # 超过总时间,抛出超时异常
                     raise TimeoutError(
                             '%d (of %d) futures unfinished' % (
                             len(pending), total_futures))
 
-            # 等待完成任务的最大时间间隔(这里的timeout是指所有futs的执行结果的timeout)
+            # # 一但有future完成,会调用 set waiter.event，否则会一直阻塞直到timeout,然后继续往下执行
             waiter.event.wait(wait_timeout)
 
             with waiter.lock:
                 finished = waiter.finished_futures
                 waiter.finished_futures = []
-                waiter.event.clear()
+                waiter.event.clear() # 取消set，下次循环继续会继续阻塞在 wait.event.wait(wait_timeout)
 
             # reverse to keep finishing order
             finished.reverse()
@@ -562,8 +563,9 @@ def as_completed(fs, timeout=None):
                 f._waiters.remove(waiter)
 
 ```
-当我们使用了**as_completed**返回一个iter时,调用方可以通过**for future in iter**的形式来处理和等待直到所有futs执行完成.
-
+- 当我们使用了**as_completed**返回一个iter时,调用方可以通过**for future in iter**的形式来处理和等待直到所有futs执行完成.
+- timeout参数代表了等待所有futs的最长等待时间
+- 当没有执行完成的futs时,进入等待状态,调用的**threading.Event().wait()**,在timeout时间周期内,如果有任务执行完成.则fut会调用set threading.event(),waiter会中断等待,继续迭代已经完成的future,直到总的耗时超过timeout或者全部futures已经执行完成.
 
 
 

@@ -988,8 +988,13 @@ class Task:
 - *task.__step*开始运行，遇到协程函数中的await语句处,拿到await返回的future,将自身的唤醒函数*_wakeup()*添加到fut的回调函数队列callback里面.然后当前结束当前step.等到future执行完成后,fut.callback列表中的callback函数会被调用,即为执行_wakeup函数,对应的协程会继续执行。
 
 
+### 同步代码以异步方式运行:loop-executor
+event-loop提供了线程池运行的方式来运行我们写的同步的代码,默认采用的**concurrent.futures.ThreadPoolExecutor**.       
+
+
 ## loop.run_in_executor     
-当*loop*运行一个阻塞的任务时.整个事件循环会阻塞，及当前的线程也会阻塞,对应的其他task也不会执行。要是想把一个阻塞的任务/或者同步代码编程异步,可以用*loop.run_in_executor*,以线程方式去运行，当前对应的事件循环也不会进入阻塞状态.源码如下:
+当*loop*运行一个阻塞的任务时.整个事件循环会阻塞，及当前的线程也会阻塞,对应的其他task也不会执行。要是想把一个阻塞的任务/或者同步代码编程异步,可以用*loop.run_in_executor*,以线程方式去运行，当前对应的事件循环也不会进入阻塞状态.源码如下:       
+
 ```python
 
     ## baseEventLoop

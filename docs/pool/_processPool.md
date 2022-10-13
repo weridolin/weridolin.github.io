@@ -13,17 +13,6 @@
 class ProcessPoolExecutor(_base.Executor):
     def __init__(self, max_workers=None, mp_context=None,
                 initializer=None, initargs=()):
-        """Initializes a new ProcessPoolExecutor instance.
-
-        Args:
-            max_workers: The maximum number of processes that can be used to
-                execute the given calls. If None or not given then as many
-                worker processes will be created as the machine has processors.
-            mp_context: A multiprocessing context to launch the workers. This
-                object should provide SimpleQueue, Queue and Process.
-            initializer: A callable used to initialize worker processes.
-            initargs: A tuple of arguments to pass to the initializer.
-        """
         _check_system_limits()
 
         if max_workers is None:

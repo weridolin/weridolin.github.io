@@ -4,14 +4,6 @@ threading.lock是最原生的一个线程同步的方法,调用*acquire*时获�
 threading.RLock是对原生的lock的改进。主要是支持同个线程同时对同个*lock*调用*acquire*.同时释放的话也要调用多次(调用了多少次*acquire*就要调用多少次*release*).
 ```python
 class _RLock:
-    """This class implements reentrant lock objects.
-
-    A reentrant lock must be released by the thread that acquired it. Once a
-    thread has acquired a reentrant lock, the same thread may acquire it
-    again without blocking; the thread must release it once for each time it
-    has acquired it.
-
-    """
 
     def __init__(self):
         self._block = _allocate_lock()
@@ -483,16 +475,10 @@ class Semaphore:
 - 如果要在一个线程*acquire*.在另外一个线程*release*。只能用原生*lock*(*condition*初始化可以自定义lock类型),不能用*Rlock*。
 - semaphore内部用的原生的Lock，也是线程安全的
 
-
-
-
-
-
-
 ### 关于threading中使用sleep()记录  
 在平时接触的工作中,发现有时需要对**thread**sleep一下在继续运行.而在sleep过程中需要能够做到中途wake并结束sleep.这里总结了以下2种方法:
 - 1. 把sleep拆解成多个小时长的sleep*次数.在循环中间进行其他逻辑处理
-- 2. 利用threading.Event()实例中的wait方法  
+- 2. 利用threading.Event()实例中的wait方法,threading.event().wait()是一个阻塞等待的过程，中途如果有其他线程set了该event,则立马中断等待,实际案例可以参考线程池中的[as_completed函数]('./_processPool.md')
 
 ```python
 
@@ -528,8 +514,13 @@ if __name__ =="__main__":
     t = SleepThread()
     t.start()
     time.sleep(2)
+
+    # 以下方式都可以马上让thread中断sleep继续执行
+    
     t.exit_flag=True # 自定义退出标记
     t.exit_flag.set() # 利用 threading.Event()的set来退出
+
+
     t.join()
 ```
 

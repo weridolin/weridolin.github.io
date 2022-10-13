@@ -541,7 +541,7 @@ def as_completed(fs, timeout=None):
                             '%d (of %d) futures unfinished' % (
                             len(pending), total_futures))
 
-            # 等待完成任务的最大时间间隔(这里的timeout不是指所有futs的执行结果的timeout,而是等待下一次future的最大时间间隔)
+            # 等待完成任务的最大时间间隔(这里的timeout是指所有futs的执行结果的timeout)
             waiter.event.wait(wait_timeout)
 
             with waiter.lock:
@@ -562,7 +562,7 @@ def as_completed(fs, timeout=None):
                 f._waiters.remove(waiter)
 
 ```
-当我们使用了**as_completed**返回一个iter时,调用方可以通过**for future in iter**的形式来处理和等待直到所有futs执行完成
+当我们使用了**as_completed**返回一个iter时,调用方可以通过**for future in iter**的形式来处理和等待直到所有futs执行完成.
 
 
 

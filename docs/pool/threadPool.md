@@ -570,7 +570,7 @@ def as_completed(fs, timeout=None):
 
 
 ## 总结
-总的来说,ThreadPoolExecutor是通过生成对应的数量的*worker*来执行用户提交的task.worker每执行完一个任务后并不会销毁（不同于普通线程）而是去不断从轮询*ThreadPoolExecutor.worker_Queue*队列,知道有新任务到来并执行.从而达到线程复用,避免频繁的线程创建销毁和切换。当然，如果的执行的逻辑周期较长,可能就不适合用线程池来处理(长期霸占一个*worker*).
+总的来说,ThreadPoolExecutor是通过生成对应的数量的*worker*来执行用户提交的task.worker每执行完一个任务后并不会销毁(不同于普通线程)而是去不断从轮询*ThreadPoolExecutor.worker_Queue*队列,知道有新任务到来并执行.从而达到线程复用,避免频繁的线程创建销毁和切换。当然，如果的执行的逻辑周期较长,可能就不适合用线程池来处理(长期霸占一个*worker*).
 ![](./threadpool.png)
 
 

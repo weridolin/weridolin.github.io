@@ -3,7 +3,7 @@ import select, socket, sys,time
 import queue
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setblocking(0) # 设置为非阻塞
-server.bind(('localhost', 9527))
+server.bind(('localhost', 50007))
 server.listen(5)
 inputs = [server]
 outputs = []
@@ -60,6 +60,6 @@ while inputs:
     #     if s in outputs:
     #         outputs.remove(s)
     #     s.close()
-    print(f"now socket list >> input:{inputs},\noutput:{outputs},\nexception:{exceptional}")
+    print(f"now socket list >> input:{inputs},\n output:{outputs},\n exception:{exceptional}")
 # 由上可见，对多个socket连接的监听和处理可以简化为一个线程，并且在用户态优化成非阻塞状态，剩下的交给内核态select去处理
 # 用户态只需要不断去调用 select，每次去对应获取要处理的socket列表即可

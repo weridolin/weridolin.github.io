@@ -21,7 +21,7 @@ def build_client(index):
                 raise
                 # break
             time.sleep(1)
-for i in range(20):
+for i in range(6):
     t = threading.Thread(target=build_client,args=(i,),daemon=False)
     t.start()
 

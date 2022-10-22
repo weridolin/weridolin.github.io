@@ -24,7 +24,7 @@ class SingleProcessSingleThreadReactor:
 
 
     def run_forever(self):
-        self.server.listen() # backlog，指定半链接队列的最大长度
+        self.server.listen(5) # backlog，指定半链接队列的最大长度
         while self.inputs:
             if len(self.inputs) > 512:  # windows系统下select的最大fd个数为512
                 if len(self.inputs) % 512==0 :
@@ -118,7 +118,8 @@ class Handler:
 class Acceptor(Handler):
 
     def handle(self, sock):
-        print("before socket accept")
+        print("before socket accept",">>>>>>>>>>>>>>>>>>>>>")
+        time.sleep(10)
         new_con,addr = sock.accept()
         new_con.setblocking(False)
         print(f"accept a new sock connection:{addr}")
@@ -185,6 +186,6 @@ class SingleProcessMultipleThreadsAcceptor(SingleProcessMultipleThreadsHandler):
 
 
 if __name__ =="__main__":
-    # rs = SingleProcessSingleThreadReactor()
-    rs = SingleProcessMultipleThreadsReactor()
+    rs = SingleProcessSingleThreadReactor()
+    # rs = SingleProcessMultipleThreadsReactor()
     rs.run_forever()

@@ -6,7 +6,7 @@ select也是内核态的一个方法，但他是非阻塞的，方法和参数�
 int select(
     int maxfdp1, ### 最大的文件描述监听数
     fd_set *readset,  ## 监听的文件集合
-    fd_set *writeset, 
+    fd_set *writeset,  ## 可发送的文件列表，例如当发送一个大的数据结构，一次性没发完.可以再次注册一个写事件,再次添加到select队列。
     fd_set *exceptset, ### 分别指向可读、可写和异常等事件对应的打开的文件描述符集合。
     const struct timeval *timeout); ## 用于设置select函数的超时时间，即告诉内核select等待多长时间之后就放弃等待。timeout == NULL 表示等待无限长的时间
 

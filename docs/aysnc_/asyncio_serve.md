@@ -278,10 +278,7 @@ class BaseSelectorEventLoop:
             server=None, # 封装对应的Serve类。base_events.Server
             backlog=100,
             ssl_handshake_timeout=constants.SSL_HANDSHAKE_TIMEOUT):
-        # This method is only called once for each event loop tick where the
-        # listening socket has triggered an EVENT_READ. There may be multiple
-        # connections waiting for an .accept() so it is called in a loop.
-        # See https://bugs.python.org/issue27906 for more details.
+
         for _ in range(backlog):
             try:
                 conn, addr = sock.accept() # 建立socket链接
@@ -381,6 +378,283 @@ class BaseSelectorEventLoop:
                     f'File descriptor {fd!r} is used by transport '
                     f'{transport!r}')
 
-    
+
+    def _make_socket_transport(self, sock, protocol, waiter=None, *,
+                                extra=None, server=None):
+        # 建立一个普通的socket通讯信道
+        return _SelectorSocketTransport(self, 
+                                        sock, # bind的socket
+                                        protocol,  # 
+                                        waiter, #  
+                                        extra,  #
+                                        server)
+
 
 ```
+- 当sever初始化socket并绑定监听了一个端口(非阻塞)后.便需要等待新的客户端链接,这里是调用了**loop._start_serving**,该方法会对该socket注册一个新的READ事件监听到selector中,当有新的客户端链接时，触发该事件回调，执行**accept_connection**,开始accept一个新的链接.
+- **loop._accept_connection()**会调用内核的**accept**方法,拿到新的刚刚建立的conn,然后会调用**_accept_connection2**,对于加一层封装成一个**transport**对象,这一步也是异步执行的.
+- **_accept_connection2**主要是把sock封装一个**transport**对象.这里是异步的,定义了一个`future`对象`waiter`,**await waiter**会在**_SelectorSocketTransport**初始化后被唤醒.
+
+
+
+### _SelectorSocketTransport    
+
+```python
+
+class _SelectorSocketTransport(_SelectorTransport):
+
+    _start_tls_compatible = True
+    _sendfile_compatible = constants._SendfileMode.TRY_NATIVE
+
+    def __init__(self, loop, sock, protocol, waiter=None,
+                extra=None, server=None):
+
+        self._read_ready_cb = None
+        super().__init__(loop, sock, protocol, extra, server)
+        self._eof = False
+        self._paused = False
+        self._empty_waiter = None
+
+        base_events._set_nodelay(self._sock)
+
+        self._loop.call_soon(self._protocol.connection_made, self)
+        # only start reading when connection_made() has been called
+        
+        # 为新建的socket新添加一个监听事件
+        self._loop.call_soon(self._add_reader,self._sock_fd, self._read_ready)
+        if waiter is not None:
+            # only wake up the waiter when connection_made() has been called
+            # 这里是结束eventloop._accept_connection2
+            self._loop.call_soon(futures._set_result_unless_cancelled,waiter, None)
+
+    def set_protocol(self, protocol):
+        # 设置 可读事件触发的回调函数
+        if isinstance(protocol, protocols.BufferedProtocol):
+            self._read_ready_cb = self._read_ready__get_buffer
+        else:
+            self._read_ready_cb = self._read_ready__data_received
+
+        super().set_protocol(protocol)
+
+    def pause_reading(self):
+        if self._closing or self._paused:
+            return
+        self._paused = True
+        self._loop._remove_reader(self._sock_fd) # 从select中移除对fd 读事件的监听
+        if self._loop.get_debug():
+            logger.debug("%r pauses reading", self)
+
+    def resume_reading(self):
+        if self._closing or not self._paused:
+            return
+        self._paused = False
+        self._add_reader(self._sock_fd, self._read_ready) # 添加对 fd 读事件的监听
+        if self._loop.get_debug():
+            logger.debug("%r resumes reading", self)
+
+    def _read_ready(self):
+        self._read_ready_cb()
+
+    def _read_ready__get_buffer(self):
+        if self._conn_lost:
+            return
+
+        try:
+            buf = self._protocol.get_buffer(-1)
+            if not len(buf):
+                raise RuntimeError('get_buffer() returned an empty buffer')
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except BaseException as exc:
+            self._fatal_error( 
+                exc, 'Fatal error: protocol.get_buffer() call failed.')
+            return
+
+        try:
+            nbytes = self._sock.recv_into(buf)
+        except (BlockingIOError, InterruptedError):
+            return
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except BaseException as exc:
+            self._fatal_error(exc, 'Fatal read error on socket transport')
+            return
+
+        if not nbytes:
+            self._read_ready__on_eof()
+            return
+
+        try:
+            self._protocol.buffer_updated(nbytes)
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except BaseException as exc:
+            self._fatal_error(
+                exc, 'Fatal error: protocol.buffer_updated() call failed.')
+
+    def _read_ready__data_received(self):
+        ## 从 sock中读取到到所有的数据 TODO 如果一次没读取完毕？
+        if self._conn_lost:
+            return
+        try:
+            # 如果一次没去读取完,下次依然会触发读事件
+            data = self._sock.recv(self.max_size)
+        except (BlockingIOError, InterruptedError):
+            return
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except BaseException as exc:
+            self._fatal_error(exc, 'Fatal read error on socket transport')
+            return
+
+        if not data:
+            # 当有一端关闭时，会recv到空的数据
+            self._read_ready__on_eof()
+            return
+
+        try:
+
+            self._protocol.data_received(data)
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except BaseException as exc:
+            self._fatal_error(
+                exc, 'Fatal error: protocol.data_received() call failed.')
+
+    def _read_ready__on_eof(self):
+        if self._loop.get_debug():
+            logger.debug("%r received EOF", self)
+
+        try:
+            keep_open = self._protocol.eof_received()
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except BaseException as exc:
+            self._fatal_error(
+                exc, 'Fatal error: protocol.eof_received() call failed.')
+            return
+
+        if keep_open:
+            # We're keeping the connection open so the
+            # protocol can write more, but we still can't
+            # receive more, so remove the reader callback.
+            ## 当接收到 0 字节的时候，说明有一端已经关闭.
+            self._loop._remove_reader(self._sock_fd) 
+            # 收到eof后停止监听SOCK的读事件，但此时仍然可以写入数据
+        else:
+            self.close()
+
+    def write(self, data):
+        if not isinstance(data, (bytes, bytearray, memoryview)):
+            raise TypeError(f'data argument must be a bytes-like object, '
+                            f'not {type(data).__name__!r}')
+        if self._eof:
+            raise RuntimeError('Cannot call write() after write_eof()')
+        if self._empty_waiter is not None:
+            raise RuntimeError('unable to write; sendfile is in progress')
+        if not data:
+            return
+
+        if self._conn_lost:
+            if self._conn_lost >= constants.LOG_THRESHOLD_FOR_CONNLOST_WRITES:
+                logger.warning('socket.send() raised exception.')
+            self._conn_lost += 1
+            return
+
+        if not self._buffer:
+            # 上次如果有没发送完成的数据，则先发送上次未完成的数据,然后发送本次要发送的数据
+            # Optimization: try to send now.
+            try:
+                # 返回已经发送的数据长度
+                n = self._sock.send(data) 
+            except (BlockingIOError, InterruptedError):
+                pass
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except BaseException as exc:
+                self._fatal_error(exc, 'Fatal write error on socket transport')
+                return
+            else:
+                data = data[n:] # 剩下的还没发送的数据
+                if not data:
+                    return
+            # Not all was written; register write handler.
+            self._loop._add_writer(self._sock_fd, self._write_ready) # 
+
+        # Add it to the buffer.
+        self._buffer.extend(data) # 如果此时数据未完全写完，则把未写完的Data保存到buffer里面，下次再发送
+        self._maybe_pause_protocol()
+
+    def _write_ready(self):
+        assert self._buffer, 'Data should not be empty'
+        if self._conn_lost:
+            return
+        try:
+            # 当前已经发送的数据字节数
+            n = self._sock.send(self._buffer)
+        except (BlockingIOError, InterruptedError):
+            pass
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except BaseException as exc:
+            self._loop._remove_writer(self._sock_fd)
+            self._buffer.clear()
+            self._fatal_error(exc, 'Fatal write error on socket transport')
+            if self._empty_waiter is not None:
+                self._empty_waiter.set_exception(exc)
+        else:
+            if n:
+                # 把发送完成的数据从buffer中移除
+                del self._buffer[:n]
+            self._maybe_resume_protocol()  # May append to buffer.
+            if not self._buffer:
+                # 已经发送完毕,注销掉该socket对应的写事件
+                self._loop._remove_writer(self._sock_fd)
+                if self._empty_waiter is not None:
+                    self._empty_waiter.set_result(None)
+                if self._closing:
+                    self._call_connection_lost(None)
+                elif self._eof: # 客户端已经关闭,则服务器这边也关闭
+                    self._sock.shutdown(socket.SHUT_WR)
+
+    def write_eof(self):
+        if self._closing or self._eof:
+            return
+        self._eof = True
+        if not self._buffer:
+            self._sock.shutdown(socket.SHUT_WR)
+
+    def _call_connection_lost(self, exc):
+        super()._call_connection_lost(exc)
+        if self._empty_waiter is not None:
+            self._empty_waiter.set_exception(
+                ConnectionError("Connection is closed by peer"))
+
+    def _make_empty_waiter(self):
+        if self._empty_waiter is not None:
+            raise RuntimeError("Empty waiter is already set")
+        self._empty_waiter = self._loop.create_future()
+        if not self._buffer:
+            self._empty_waiter.set_result(None)
+        return self._empty_waiter
+
+    def _reset_empty_waiter(self):
+        self._empty_waiter = None
+
+
+```
+
+- 当server accept了一个新的conn之后,会被封装到一个_SelectorSocketTransport对象中,_SelectorSocketTransport在初始化的时候会对这个新建立的`conn`注册一个READ事件到selector.同时对`loop._accept_connection2`里面新建的future对象waiter ser_result,驱动`loop._accept_connection2`运行完毕.
+
+- 当新建的`conn`收到新的消息后,会调用对应的`read_ready_cb`方法.根据不同的协议(是否有buffer),调用的不同的方法,这里假设调用的是`_read_ready__data_received`
+
+- `_read_ready__data_receive`方法从sock中读取到对应的数据,调用对应的`protocol`中的data_received方法进行处理
+
+- `protocol`表示对应的协议，比如http等.
+
+- 当客户端断开链接的时候，服务端会收到一个eof的消息(O byte),此时socket处于半关闭状态(客户端关闭,服务端这边没有关闭).服务端这边会把socket一开始对应的注册的READ事件从selector移除掉
+
+- 当有写数据时,调用的`transport.write`。当数据一次性发送完成后,直接调用return,结束该次调用,当数据没有发送完成时.为该socket注册一个WRITE事件到selector里面.此时在所有待写入的data写入完成前.该write事件会一直被触发.
+
+- 当要发送的数据通过一次write调用未发送完成时，剩下的数据通过`_write_ready`方法发送.如果发送完毕,则会注销掉该socket对应的写事件,否则会一直触发写事件.
+

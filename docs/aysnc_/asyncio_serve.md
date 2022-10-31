@@ -397,7 +397,7 @@ class BaseSelectorEventLoop:
 
 
 
-### _SelectorSocketTransport    
+##### _SelectorSocketTransport    
 
 ```python
 
@@ -656,5 +656,11 @@ class _SelectorSocketTransport(_SelectorTransport):
 
 - 当有写数据时,调用的`transport.write`。当数据一次性发送完成后,直接调用return,结束该次调用,当数据没有发送完成时.为该socket注册一个WRITE事件到selector里面.此时在所有待写入的data写入完成前.该write事件会一直被触发.
 
-- 当要发送的数据通过一次write调用未发送完成时，剩下的数据通过`_write_ready`方法发送.如果发送完毕,则会注销掉该socket对应的写事件,否则会一直触发写事件.
+- 当要发送的数据通过一次write调用未发送完成时，剩下的数据通过`_write_ready`方法发送.如果发送完毕,则会注销掉该socket对应的写事件,否则会一直触发写事件.(如果当前`_write_ready`未写完,会一直触发Write事件)
+
+
+
+##### aihttp.http_protocol
+
+
 

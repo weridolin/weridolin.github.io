@@ -7,15 +7,17 @@ event  = threading.Event()
 def task(seconds):
     print(">>>",seconds)
     # event = threading.Event()
-    event.wait(1000)
+    # event.wait(10)
+    time.sleep(2)
 
 
 def wakeup():
+    print("wake up")
     event.set()
 
 
 if __name__ =="__main__":
-    pool = ThreadPoolExecutor(max_workers=2)
+    pool = ThreadPoolExecutor(max_workers=1)
     futs = []
     # for i in range(0,10,2):
     #     fut = pool.submit(task,i)
@@ -24,7 +26,7 @@ if __name__ =="__main__":
     time.sleep(2)
     pool.submit(wakeup)
     
-    # res = as_completed(futs)
+    res = as_completed(futs)
     # for r in res:
     #     print(datetime.datetime.now())
     #     print(r)

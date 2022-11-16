@@ -46,9 +46,55 @@
 ## nginx
 前面我们知道跨域是由于浏览器向非同源的服务端发送了请求导致的，在前后端分离盛行的今天，这种场景基本很常见,那么只要在请求到达服务端前加一层转发,而不是直接到达服务端,不久可以解决这个问题了吗🤭,所以...可以搞一个nginx反向代理，前端请求和后端请求都统一走的nginx的代理端口,在浏览器看来，都是走的同一个服务器端口,所以就不会触发跨域问题.
 
-todo 思考.如果前端不走nginx是否就不行？猜测估计会有跨域问题,待验证
+
+## 前端解决.
+实际上开发过程中大多数情况都不会搞一个nginx.好在现在前端都能支持配置代理,这里以vite+vue为例子.原理上也是对请求做一个转发代理,使得前端请求和后端保持同源的策略.只需要直接配置**vite.config.ts**相关配置项即可
+```typescript
+
+import { fileURLToPath, URL } from 'url'
+import vue from '@vitejs/plugin-vue'
+import { defineConfig } from 'vite'
+import analyzer from 'rollup-plugin-analyzer'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  // base:"/",
+  resolve: {
+    alias: {
+      src: fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
+  plugins: [
+    vue(),
+    analyzer({ summaryOnly: true }),
+  ],
+  // build: {
+  //   outDir: './dist/'
+  // }
+  // ******开发服务器配置******
+  server: {
+      https: false, //(使用https)启用 TLS + HTTP/2。注意：当 server.proxy 选项 也被使用时，将会仅使用 TLS
+      host: "127.0.0.1", 
+      port: 3000, //指定开发服务器端口：默认3000
+      open: false, //启动时自动在浏览器中打开
+      cors: true, //为开发服务器配置 CORS
+      proxy: {
+        //配置自定义代理规则
+        // 字符串简写写法
+        '^/api': {
+        //所有的 http://127.0.0.1:3000/api/xxxxx  请求都会被转发到 http://127.0.0.1:8000/api/xxxxx
+        //这里要注意,axios请求的base url 应该为 http://127.0.0.1:3000而不是服务器的地址 http://127.0.0.1:8000
+          target: 'http://127.0.0.1:8000',  
+          changeOrigin: true, //是否跨域
+          rewrite: path => path.replace(/^\/api/, 'api')
+        }
+      }
+
+  }
+})
 
 
+```
 
 ## 服务端解决
 由前面我们可以知道,出现跨域是因为服务端没有返回的响应头中*Access-Control-Allow-Origin*没有包含浏览器请求头中*origin*字段的缘故，所以我们可以在请求响应头添加对应的*Access-Control-Allow-Origin*即可.
@@ -77,6 +123,7 @@ class Resquest(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         print(self.headers)
         self.send_response(200)
+        ## 预检请求返回的响应添加对应的跨域信息字段
         self.send_header('Access-Control-Allow-Methods', '*')
         self.send_header('Access-Control-Allow-Headers','*') 
         self.send_header('Access-Control-Allow-Origin','*')
@@ -87,6 +134,8 @@ class Resquest(BaseHTTPRequestHandler):
 
 > 处理后POST请求已经可以发送成功
 ![POST](../recource/images/cros_post.png)
+
+
 
 
 ps: *是非常暴力的方式,最好直接指定一些具体的域名

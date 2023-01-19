@@ -43,8 +43,8 @@
     -[sqlite](/database/Q%26ARecord/sqlite.md)
 
 - 个人项目
-   - [celery-sqlalchemy-beat(todo)]()
-   - [个人网站]()
+   - [celery-sqlalchemy-beat](/project/sa-celery-beat.md)
+   - [个人网站](/project/site.md)
 
 - 其他
     - [优先队列](/python/_heap/优先队列.md) 

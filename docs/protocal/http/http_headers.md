@@ -8,7 +8,8 @@
 key1=value1&key2=value21&key2=value22&key3=value3
 
 ```
-* multipart/form-data: 不会对发送的二进制数据进行编码.同时发送的每个KEY-VALUE会按照分割符分割.都会有自己的header信息(适合发送比较大的数据):
+
+* multipart/form-data: 不会对发送的二进制数据进行编码.同时发送的每个KEY-VALUE会按照分割符分割.都会有自己的header信息(适合发送比较大的数据,如文件/图片等):
 ```text
 
 //// multipart/form-data格式发送数据
@@ -70,7 +71,7 @@ Content-Type: text/plain
 
 ## content-length 和 Transfer-Encoding:chunked的区别
 * 当发送的数据的长度是确定的时候.直接使用`content-length`
-* 当发送的数据长度不确实时候，可以使用 `Transfer-Encoding:chunked`,此时请求头不应该使用`content-length`
+* 当发送的数据长度不确定时候(比如上传文件时先切割在上传)，可以使用 `Transfer-Encoding:chunked`,此时请求头不应该使用`content-length`
 
 ### Transfer-Encoding:chunked的data数据结构
 ```

@@ -1,5 +1,14 @@
 {
     "cSpell.words": [
         "sqlalchemy"
-    ]
+    ],
+    "files.associations": {
+        "stdio.h": "c",
+        "python.h": "c",
+        "windowsx.h": "c",
+        "windows.system.h": "c",
+        "stdlib.h": "c",
+        "windows.h": "c",
+        "winuser.h": "c"
+    }
 }

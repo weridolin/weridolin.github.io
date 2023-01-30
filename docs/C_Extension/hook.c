@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <Python.h>
 #include <Windows.h>
+#include <pythread.h>
 #include <WinUser.h>
 #pragma comment(lib, "user32.lib") // 真正实现SetWindowsHookEx的方法
 
@@ -11,23 +12,10 @@
 */
 
 // 钩子
-static HHOOK g_hook = NULL;
+static HHOOK mouse_hook = NULL;
+static HHOOK keyboard_hook = NULL;
 static PyObject *mouse_hook_cb = NULL;
-
-int InvokeMouseHookCallBack()
-{
-    if (!PyCallable_Check(mouse_hook_cb))
-    {
-        PyErr_SetString(PyExc_TypeError, "mouse hook callback is not callable");
-        return -1;
-    }
-    else
-    {
-        printf(">>> call mouse hook callback");
-        PyObject_CallFunction(mouse_hook_cb, NULL);
-        return 1;
-    }
-}
+static PyObject *keyboard_hook_cb = NULL;
 
 // mouse hook callback
 LRESULT CALLBACK KeyBoardProc(int nCode, WPARAM wParam, LPARAM lParam)
@@ -42,22 +30,35 @@ LRESULT CALLBACK KeyBoardProc(int nCode, WPARAM wParam, LPARAM lParam)
         }KBDLLHOOKSTRUCT,*LPKBDLLHOOKSTRUCT,*PKBDLLHOOKSTRUCT;
     */
     KBDLLHOOKSTRUCT *ks = (KBDLLHOOKSTRUCT *)lParam;
-    // if (wParam == WM_KEYDOWN)
-    // {
-    //     printf("keyboard press down");
-    // }
-    // else
-    if (wParam == WM_KEYUP)
+    printf("get keyboard event :%I64i \n",wParam);
+    // 调用PYTHON 回调函数处理
+    PyGILState_STATE gstate;
+    BOOL ignore = FALSE;
+    PyObject *arglist = NULL;
+    gstate = PyGILState_Ensure();
+    if (!PyCallable_Check(keyboard_hook_cb))
     {
-        printf("keyboard press up");
-        int res = InvokeMouseHookCallBack();
-        if (res == -1)
-        {
-            printf(">>> exec callback fun error");
-        }
+        printf("hook callback is not callable");
     }
-    // return 1;	// 吃掉消息
-    return CallNextHookEx(NULL, nCode, wParam, lParam);
+    else
+    {
+        // parse argument list
+        arglist = Py_BuildValue("(l)", wParam);
+        // printf("call mouse hook callback \n");
+        ignore = PyObject_IsTrue(PyObject_CallObject(keyboard_hook_cb, arglist));
+        // PyObject_Print(ignore,stdout, 0);
+    }
+    Py_DECREF(arglist);
+    PyGILState_Release(gstate);
+    if (!ignore)
+    {
+        return CallNextHookEx(NULL, nCode, wParam, lParam);
+    }
+    else
+    {   
+        printf("ignore this keyboard event");
+        return 1;
+    }
 }
 
 // mouse hook处理函数
@@ -73,10 +74,35 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
     */
 
     MOUSEHOOKSTRUCT *ms = (MOUSEHOOKSTRUCT *)lParam;
+    printf("get keyboard event :%I64i \n",wParam);
 
-    printf(">>> mouse  event get");
-    // return 1;	// 吃掉消息
-    return CallNextHookEx(NULL, nCode, wParam, lParam);
+    // 调用PYTHON 回调函数处理
+    PyGILState_STATE gstate;
+    BOOL ignore = FALSE;
+    PyObject *arglist = NULL;
+    gstate = PyGILState_Ensure();
+    if (!PyCallable_Check(mouse_hook_cb))
+    {
+        printf("hook callback is not callable");
+    }
+    else
+    {
+        // parse argument list
+        arglist = Py_BuildValue("(l)", wParam);
+        ignore = PyObject_IsTrue(PyObject_CallObject(mouse_hook_cb, arglist));
+        // PyObject_Print(ignore,stdout, 0);
+    }
+    Py_DECREF(arglist);
+    PyGILState_Release(gstate);
+    if (!ignore)
+    {
+        return CallNextHookEx(NULL, nCode, wParam, lParam);
+    }
+    else
+    {   
+        printf("ignore this mouse event");
+        return 1;
+    }
 }
 
 // python函数作为回调参数
@@ -88,11 +114,11 @@ static PyObject *AddMouseHookCallbackFunc(PyObject *self, PyObject *args)
         if (!PyCallable_Check(mouse_hook_cb))
         {
             PyErr_SetString(PyExc_TypeError, "param is not callable");
-            return PyBool_FromLong(1);
+            return NULL;
         }
         else
         {
-            printf(">>> add mouse hook callback");
+            printf("add mouse hook callback success");
             // PyObject_CallFunction(mouse_hook_cb, NULL);
             return PyBool_FromLong(1);
         }
@@ -100,39 +126,79 @@ static PyObject *AddMouseHookCallbackFunc(PyObject *self, PyObject *args)
     return PyBool_FromLong(1);
 }
 
-static PyObject *InstallMouseHook(PyObject *self)
+// python函数作为回调参数
+static PyObject *AddKeyBoardCallbackFunc(PyObject *self, PyObject *args)
+{
+    // static PyObject *callback = NULL;
+    if (PyArg_ParseTuple(args, "O:set_callback", &keyboard_hook_cb))
+    {
+        if (!PyCallable_Check(keyboard_hook_cb))
+        {
+            PyErr_SetString(PyExc_TypeError, "param is not callable");
+            return NULL;
+        }
+        else
+        {
+            printf("add keyboard callback success");
+            // PyObject_CallFunction(mouse_hook_cb, NULL);
+            return PyBool_FromLong(1);
+        }
+    }
+    return PyBool_FromLong(1);
+}
+
+
+static PyObject *InstallMouseHook(PyObject *self,PyObject *args)
 {
     if (mouse_hook_cb == NULL)
     {
         PyErr_SetString(PyExc_TypeError, "please add mouse hook callback first!");
         return NULL;
     }
-    HINSTANCE hk = GetModuleHandle(NULL); //NULL则会返回当前进程ID
-    g_hook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyBoardProc, hk, 0); //WH_KEYBOARD_LL表示全局键盘钩子 
+    HINSTANCE hk = GetModuleHandle(NULL);                               // NULL则会返回当前进程ID
+    mouse_hook = SetWindowsHookEx(WH_MOUSE_LL, MouseProc, hk, 0); // WH_MOUSE_LL表示全局键盘钩子
     return PyBool_FromLong(1);
 }
 
-static PyObject *start(PyObject *self)
-{
-    if (g_hook == NULL)
+
+static PyObject *InstallKeyBoardHook(PyObject *self,PyObject *args)
+{ 
+    if (keyboard_hook_cb == NULL)
     {
-        PyErr_SetString(PyExc_ValueError, "please install hook first");
+        PyErr_SetString(PyExc_TypeError, "please add keyboard hook callback first!");
         return NULL;
     }
+    HINSTANCE hk = GetModuleHandle(NULL);                                  // NULL则会返回当前进程ID
+    keyboard_hook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyBoardProc, hk, 0); // WH_KEYBOARD_LL表示全局键盘钩子
+    return PyBool_FromLong(1);
+}
+
+static PyObject *start(PyObject *self,PyObject *args)
+{
+    // 关于C-EXTENSION 中的GIL问题
+    //  https://stackoverflow.com/questions/42006337/python-c-api-is-it-thread-safe
+    //  https://www.cnblogs.com/traditional/p/13289905.html
+    //  https://stackoverflow.com/questions/15470367/pyeval-initthreads-in-python-3-how-when-to-call-it-the-saga-continues-ad-naus
+    Py_BEGIN_ALLOW_THREADS; // 去掉GIL限制，这里如果想访问任务PYTHON 相关API，必须重新获取 GIL
     MSG msg;
+    // HINSTANCE hk = GetModuleHandle(NULL); // NULL则会返回当前进程ID 
+    BOOL bRet;
 
-    HINSTANCE hk = GetModuleHandle(NULL); //NULL则会返回当前进程ID TODO 1.getMessage 加hk参数  2.用peekMessage
-    printf(GetMessage(&msg, hk, 0, 0));
-	// while (TRUE)
-	// {   
-    //     // printf("get message");
-	// 	// TranslateMessage(&msg);
-	// 	// DispatchMessage(&msg);
-    //     Sleep(100);
-	// }
-
-    UnhookWindowsHookEx(g_hook);
-
+    while (bRet = GetMessageW(&msg, NULL, 0, 0) != 0)
+    {
+        if (bRet == -1)
+        {
+            // handle the error and possibly exit
+            printf("error ---> getMessage error");
+        }
+        else
+        {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+    }
+    Py_END_ALLOW_THREADS;
+    UnhookWindowsHookEx(mouse_hook);
     return PyBool_FromLong(1);
 }
 
@@ -140,21 +206,32 @@ static PyObject *start(PyObject *self)
 
 // 方法信息，可以包含多个方法
 static PyMethodDef HookMethods[] = {
-    {"install_mouse_hook",  // PYthon调用时对应的方法
-     InstallMouseHook,      // 对应的C-EXTENSION里面的方法
-     METH_NOARGS,           // 标记,告诉PYTHON解释器这个方法无参数
-     "install mouse hook"}, // 函数说明
     {
-        "start",       // PYthon调用时对应的方法
-        start,               // 对应的C-EXTENSION里面的方法
-        METH_NOARGS,         // 标记,告诉PYTHON解释器这个方法无参数
-        "start mouse hook"}, // 函数说明
+        "install_mouse_hook",  // PYthon调用时对应的方法
+        InstallMouseHook,      // 对应的C-EXTENSION里面的方法
+        METH_NOARGS,           // 标记,告诉PYTHON解释器这个方法无位置参数
+        "install mouse hook"}, // 函数说明
+    {
+        "install_keyboard_hook",  // PYthon调用时对应的方法
+        InstallKeyBoardHook,      // 对应的C-EXTENSION里面的方法
+        METH_NOARGS,           // 标记,告诉PYTHON解释器这个方法无位置参数
+        "install keyboard hook"}, // 函数说明        
     {
         "add_mouse_hook_cb",                 // PYthon调用时对应的方法
         AddMouseHookCallbackFunc,            // 对应的C-EXTENSION里面的方法
         METH_VARARGS,                        // 标记,告诉PYTHON解释器有位置参数
         "add mouse hook callback function"}, // 函数说明
-    {NULL, NULL, 0, NULL}                    // 一定要加上这个，否则pyd无法正常导入
+    {
+        "add_keyboard_hook_cb",                 // PYthon调用时对应的方法
+        AddKeyBoardCallbackFunc,            // 对应的C-EXTENSION里面的方法
+        METH_VARARGS,                        // 标记,告诉PYTHON解释器有位置参数
+        "add keyboard hook callback function"}, // 函数说明
+    {
+        "start",             // PYthon调用时对应的方法
+        start,               // 对应的C-EXTENSION里面的方法
+        METH_NOARGS,         // 标记,告诉PYTHON解释器这个方法无位置参数
+        "start mouse hook"}, // 函数说明
+    {NULL, NULL, 0, NULL}                    // 哨兵, 一定要加上这个，否则pyd无法正常导入
 };
 
 // module信息
@@ -172,26 +249,3 @@ PyMODINIT_FUNC PyInit_hookE(void)
     PyObject *module = PyModule_Create(&HookModule);
     return module;
 }
-
-// int main(void)
-// {
-//     // FILE *fp = fopen("write.txt", "w");
-//     // fputs("Real Python!", fp);
-//     // fclose(fp);
-//     // return 1;
-// 	// 消息循环是必须的，Windows直接在你自己的进程中调用你的hook回调.要做这个工作,
-// 	//需要一个消息循环.没有其他机制可以让您的主线程进行回调,
-// 	//回调只能在您调用Get / PeekMessage()以使Windows可以控制时发生.
-//     // InstallHook();
-// 	// MSG msg;
-// 	// while (GetMessage(&msg, NULL, 0, 0))
-// 	// {
-// 	// 	TranslateMessage(&msg);
-// 	// 	DispatchMessage(&msg);
-// 	// }
-
-// 	// UnhookWindowsHookEx(g_hook);
-
-// 	return 0;
-
-// }

@@ -1,26 +1,36 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <process.h>
+#include <Windows.h>
+// #include <pythread.h>
 #include <io.h>
 //必须将包含的python.h添加到GCC对应的环境变量中
 #include <Python.h>
 #define FPUTS_MACRO 256
 
-// int main(void)
-// {
-//     // FILE *fp = fopen("write.txt", "w");
-//     // fputs("Real Python!", fp);
-//     // fclose(fp);
-//     // return 1;
-//     printf(">>>");
-// }
+
+static PyObject *loop(PyObject *self)
+{   
+
+    int count=10000;
+    for (size_t i = 0; i < count; i++)
+    {
+        printf(">>> loop");
+        Sleep(1000);
+    }
+    // return PyBool_FromLong(1);
+    Py_INCREF(Py_None);
+    return Py_None;
+
+}
+
 // 在python中，所有的一切皆为对象,所有的对象继承于PyObject,
 // 在C-extension中，对应的返回值，参数也都为 PyObject
 //  C <--- PyObject ---> python
+// self代表模块名称
 static PyObject *method_fputs(PyObject *self, PyObject *args)
 // 函数 method_fputs,返回一个指针，指向一个PyObject对象 
 {
-
     char *str, *filename = NULL;
     int bytes_copied = -1;
 
@@ -57,6 +67,11 @@ static PyMethodDef FputsMethods[] = {
         method_fputs, // 对应的C-EXTENSION里面的方法
         METH_VARARGS, // 标记,告诉PYTHON解释器将会接受2个PyObject参数
         "Python interface for fputs C library function"
+    },//函数说明
+    {  "loop", // PYthon调用时对应的方法
+        loop, // 对应的C-EXTENSION里面的方法
+        METH_NOARGS, // 
+        "test"
     },//函数说明
     {NULL, NULL, 0, NULL}
 };

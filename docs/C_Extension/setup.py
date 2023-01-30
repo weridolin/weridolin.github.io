@@ -7,7 +7,7 @@ def main():
         author="werido",
         author_email="359066432@qq.com",
         # ext_modules=[Extension("fputs", ["hello.c"])]
-        ext_modules=[Extension("hookE", ["hook.c"])]
+        ext_modules=[Extension("hookE", ["hook.c"],language="c"),Extension("fputs", ["hello.c"],language="c")]
 
     )
 

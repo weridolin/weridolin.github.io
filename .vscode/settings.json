@@ -1,5 +1,6 @@
 {
     "cSpell.words": [
+        "gstate",
         "sqlalchemy"
     ],
     "files.associations": {
@@ -9,6 +10,8 @@
         "windows.system.h": "c",
         "stdlib.h": "c",
         "windows.h": "c",
-        "winuser.h": "c"
+        "winuser.h": "c",
+        "pythread.h": "c",
+        "process.h": "c"
     }
 }

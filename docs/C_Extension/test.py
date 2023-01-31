@@ -12,7 +12,7 @@ import fputs
 #     print("222")
 #     time.sleep(1)
 # t.join()
-# import time
+import time
 
 def keyboard_callback(kb_virtual_code:int):
     """
@@ -36,25 +36,29 @@ def mouse_callback(mouse_event:int):
     print(f"i am mouse callback:{mouse_event}")
     return False
 
+
 import threading
+import hookE 
 
 def start():
-    import hookE 
     print(dir(hookE))
     hookE.add_keyboard_hook_cb(keyboard_callback)
-    hookE.add_mouse_hook_cb(mouse_callback)
     hookE.install_keyboard_hook()
-    hookE.install_mouse_hook()
+    # hookE.add_mouse_hook_cb(mouse_callback)
+    # hookE.install_mouse_hook()
     hookE.start()
     # for i in range(10):
     #     print("ttt")
     #     time.sleep(1)
 
 t = threading.Thread(target=start,args=())
-t.daemon=True
+t.daemon=False
 t.start()
-
-for i in range(5):
+time.sleep(2)
+hookE.stop(t.native_id)
+for i in range(1):
     # print("2222222ssssssss")
-    import time
     time.sleep(1)
+
+# 因为是线程启动，停止的时候需要传一个线程ID进去
+

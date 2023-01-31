@@ -17,6 +17,7 @@ static HHOOK keyboard_hook = NULL;
 static PyObject *mouse_hook_cb = NULL;
 static PyObject *keyboard_hook_cb = NULL;
 
+
 // mouse hook callback
 LRESULT CALLBACK KeyBoardProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
@@ -147,7 +148,6 @@ static PyObject *AddKeyBoardCallbackFunc(PyObject *self, PyObject *args)
     return PyBool_FromLong(1);
 }
 
-
 static PyObject *InstallMouseHook(PyObject *self,PyObject *args)
 {
     if (mouse_hook_cb == NULL)
@@ -160,9 +160,9 @@ static PyObject *InstallMouseHook(PyObject *self,PyObject *args)
     return PyBool_FromLong(1);
 }
 
-
 static PyObject *InstallKeyBoardHook(PyObject *self,PyObject *args)
-{ 
+{   
+    printf("thread id in install func:%i",GetCurrentThreadId());
     if (keyboard_hook_cb == NULL)
     {
         PyErr_SetString(PyExc_TypeError, "please add keyboard hook callback first!");
@@ -173,6 +173,7 @@ static PyObject *InstallKeyBoardHook(PyObject *self,PyObject *args)
     return PyBool_FromLong(1);
 }
 
+// start hook
 static PyObject *start(PyObject *self,PyObject *args)
 {
     // 关于C-EXTENSION 中的GIL问题
@@ -181,11 +182,10 @@ static PyObject *start(PyObject *self,PyObject *args)
     //  https://stackoverflow.com/questions/15470367/pyeval-initthreads-in-python-3-how-when-to-call-it-the-saga-continues-ad-naus
     Py_BEGIN_ALLOW_THREADS; // 去掉GIL限制，这里如果想访问任务PYTHON 相关API，必须重新获取 GIL
     MSG msg;
-    // HINSTANCE hk = GetModuleHandle(NULL); // NULL则会返回当前进程ID 
     BOOL bRet;
 
     while (bRet = GetMessageW(&msg, NULL, 0, 0) != 0)
-    {
+    {   
         if (bRet == -1)
         {
             // handle the error and possibly exit
@@ -198,12 +198,32 @@ static PyObject *start(PyObject *self,PyObject *args)
         }
     }
     Py_END_ALLOW_THREADS;
+    printf("stop hook....");
     UnhookWindowsHookEx(mouse_hook);
     return PyBool_FromLong(1);
 }
 
-// e-extension相关的初始函数，包括c-extension里面对应函数和模块信息
+// stop hook
+static PyObject *stop(PyObject *self,PyObject *args){
+    // HINSTANCE hk = GetModuleHandle(NULL); 
+    DWORD t_id;
+    if (mouse_hook == NULL && keyboard_hook ==NULL)
+    {
+        PyErr_SetString(PyExc_TypeError, "please START HOOK first!");
+        return NULL;
+    } 
+    if (PyArg_ParseTuple(args, "i", &t_id))
+    {
+        printf("stop getMessage in thread:%i",t_id);
+        PostThreadMessageW(t_id,WM_QUIT,0,0);
+        return Py_True;
+    }else{
+        PyErr_SetString(PyExc_ValueError, "thread id can not be None");
+        return NULL;
+    }
+}
 
+// e-extension相关的初始函数，包括c-extension里面对应函数和模块信息
 // 方法信息，可以包含多个方法
 static PyMethodDef HookMethods[] = {
     {
@@ -230,7 +250,12 @@ static PyMethodDef HookMethods[] = {
         "start",             // PYthon调用时对应的方法
         start,               // 对应的C-EXTENSION里面的方法
         METH_NOARGS,         // 标记,告诉PYTHON解释器这个方法无位置参数
-        "start mouse hook"}, // 函数说明
+        "start  hook"}, // 函数说明
+    {
+        "stop",             // PYthon调用时对应的方法
+        stop,               // 对应的C-EXTENSION里面的方法
+        METH_VARARGS,         // 标记,告诉PYTHON解释器这个方法无位置参数
+        "stop  hook"}, // 函数说明
     {NULL, NULL, 0, NULL}                    // 哨兵, 一定要加上这个，否则pyd无法正常导入
 };
 
@@ -246,6 +271,7 @@ static struct PyModuleDef HookModule = {
 // PyMODINIT_FUNC：python import时运行的方法 PyInit_{{module name}}
 PyMODINIT_FUNC PyInit_hookE(void)
 {
+    printf("thread id in init func:%i",GetCurrentThreadId());
     PyObject *module = PyModule_Create(&HookModule);
     return module;
 }

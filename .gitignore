@@ -6,3 +6,7 @@ docs/redis/*.rdb
 docs/redis/*.conf
 .vscode/*
 docs/C_Extension/build/*
+*.pyd
+*.exp
+*.lib
+*.obj

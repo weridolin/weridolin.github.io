@@ -4,6 +4,7 @@
 #include <Windows.h>
 #include <pythread.h>
 #include <WinUser.h>
+// #include <hook.h>
 #pragma comment(lib, "user32.lib") // 真正实现SetWindowsHookEx的方法
 
 /*
@@ -180,6 +181,7 @@ static PyObject *start(PyObject *self,PyObject *args)
     //  https://stackoverflow.com/questions/42006337/python-c-api-is-it-thread-safe
     //  https://www.cnblogs.com/traditional/p/13289905.html
     //  https://stackoverflow.com/questions/15470367/pyeval-initthreads-in-python-3-how-when-to-call-it-the-saga-continues-ad-naus
+    // https://github.com/zpoint/CPython-Internals/blob/master/Interpreter/gil/gil.md
     Py_BEGIN_ALLOW_THREADS; // 去掉GIL限制，这里如果想访问任务PYTHON 相关API，必须重新获取 GIL
     MSG msg;
     BOOL bRet;
@@ -262,16 +264,15 @@ static PyMethodDef HookMethods[] = {
 // module信息
 static struct PyModuleDef HookModule = {
     PyModuleDef_HEAD_INIT,
-    "hookE",                            // module name
+    "hook",                            // module name
     "python hook api from c extension", // module docstring
     -1,                                 // ？
     HookMethods                         // 该module对应的方法列表
 };
 
 // PyMODINIT_FUNC：python import时运行的方法 PyInit_{{module name}}
-PyMODINIT_FUNC PyInit_hookE(void)
+PyMODINIT_FUNC PyInit_hook(void)
 {
-    printf("thread id in init func:%i",GetCurrentThreadId());
     PyObject *module = PyModule_Create(&HookModule);
     return module;
 }

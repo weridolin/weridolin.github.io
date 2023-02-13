@@ -20,3 +20,4 @@ T = TestObject()
 print(T.instance_value)
 print(T.instance_value)
 T.instance_value = 222
+

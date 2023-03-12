@@ -10,3 +10,4 @@ docs/C_Extension/build/*
 *.exp
 *.lib
 *.obj
+venv64/

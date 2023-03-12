@@ -3,7 +3,7 @@ import threading
 import time
 def build_client(index):
     HOST = '127.0.0.1'    # The remote host
-    PORT = 8888              # The same port as used by the server
+    PORT = 5001              # The same port as used by the server
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((HOST, PORT))
         time.sleep(3)

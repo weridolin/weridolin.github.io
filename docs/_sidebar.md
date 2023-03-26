@@ -4,6 +4,7 @@
     - [threadPool](/pool/threadPool.md)
     - [processPool](/pool/_processPool.md)
     - [PIPE](/pool/Pipe.md)
+    - [进程间通信](/pool/%E8%BF%9B%E7%A8%8B%E9%97%B4%E9%80%9A%E4%BF%A1.md)
     - [线程同步](/pool/threadingSync.md)
     - [threadinglocal](/pool/_threadlocal.md)
 - async

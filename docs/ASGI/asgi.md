@@ -132,7 +132,7 @@ ASGI下一个简单的HTTP请求的scope结果如下,类似于WSGI的environ:
 
 ```
 
-**http.response.body** 结构必须包括 **body**,**more_body**字段,**more_body**为true表示后续没有回复内容,此时如果在发送类型**http.response.body**的消息,则server会抛出异常
+**http.response.body** 结构必须包括 **body**,**more_body**字段,**more_body**为**false**表示后续没有回复内容,此时如果在发送类型**http.response.body**的消息,则server会抛出异常
 ```python
 {
     'type': 'http.response.body',

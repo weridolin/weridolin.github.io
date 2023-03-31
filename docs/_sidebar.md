@@ -1,4 +1,4 @@
-- python一些库源码update
+- python一些库源码
     - [selectors](/python/selectors_/selectors.md)
     - [logging](/python/logging_/note.md)
     - [threadPool](/pool/threadPool.md)

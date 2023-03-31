@@ -209,7 +209,7 @@ class Server:
 
 
 ```
-- 启动server的过程就是调用了**Server.run**方法，也就是调用了**Server.serve**方法.**Server.serve**中最主要的是**self.startup(sockets=sockets)**方法.这个方法是真正绑定监听socket的方法.主要是调用了event-loop中的**create_server**方法.该方法主要是把绑定的socket添加到select队列中.event-loop都会调用select去轮询,如果有新连接进来,调用accept并把新建立的连接添加到select监听队列.具体看[event-loop]()
+- 启动server的过程就是调用了**Server.run**方法，也就是调用了**Server.serve**方法.**Server.serve**中最主要的是**self.startup(sockets=sockets)**方法.这个方法是真正绑定监听socket的方法.主要是调用了event-loop中的**create_server**方法.该方法主要是把绑定的socket添加到select队列中.event-loop都会调用select去轮询,如果有新连接进来,调用accept并把新建立的连接添加到select监听队列.具体看[event-loop](/aysnc_/eventloop-futures.md)
 
 - 调用event-loop创建服务后,serve会调用**main_loop**方法，不断进行轮询.根据退出条件判断是否要退出.
 
@@ -641,7 +641,7 @@ class Starlette:
 
 
 ```
-- 直接看**__Call__**方法,先是调用了中间件栈，这点跟[django的中间件](/docs/WSGI/django-middleware.md)设计是一样的.app会先被router封装一层,在被中间件栈封装一层.
+- 直接看**__Call__**方法,先是调用了中间件栈，这点跟[django的中间件](/WSGI/django-middleware.md)设计是一样的.app会先被router封装一层,在被中间件栈封装一层.
 - 中间件主要就是对request的到来和返回做一个切面操作，而router的话主要是屏蔽了**received/send**操作。使得最终基于框架实现的接口无需去考虑**received/send**.
 
 ```python

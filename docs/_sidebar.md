@@ -19,8 +19,8 @@
     - [DJANGO的中间件设计](/WSGI/django-middleware.md)
 
 - ASGI  
-    - [asgi概念](/docs/ASGI/python%E8%87%AA%E5%B8%A6Asgi.md)
-    - [一个基于ASGI完整的请求流转过程](/docs/ASGI/%E4%B8%80%E4%B8%AA%E5%AE%8C%E6%95%B4ASGI%E8%AF%B7%E6%B1%82%E8%BF%87%E7%A8%8B.md)
+    - [asgi概念](/ASGI/python%E8%87%AA%E5%B8%A6Asgi.md)
+    - [一个基于ASGI完整的请求流转过程](/ASGI/%E4%B8%80%E4%B8%AA%E5%AE%8C%E6%95%B4ASGI%E8%AF%B7%E6%B1%82%E8%BF%87%E7%A8%8B.md)
 
 
 - sockets

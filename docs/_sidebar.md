@@ -56,5 +56,5 @@
 
 - devops
     - [uwsgi](/devops/uwsgi/uwsgi.md)
-
+    - [mongo分片集群部署(docker-compose版本)](/database/mongodb/cluster.md)
 

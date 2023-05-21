@@ -1,0 +1,118 @@
+version: '3.4'
+services:
+  # 分片
+  shard1:
+    image: mongo
+    # --shardsvr: 将此mongod实例配置为分片集群中的分片。默认端口是27018。 
+    # --directoryperdb：每个数据库使用单独的文件夹
+    # replSet副本集名称 primary（主节点，提供增删查改服务），slaver（备节点，只提供读）,arbiter（仲裁节点，不存储数据，只负责仲裁
+    command:  mongod --shardsvr --replSet shard1 --port 27017 --directoryperdb
+    ports:
+      - 20001:27017
+    volumes:
+      - /etc/localtime:/etc/localtime
+      # - /data/fates/mongo/shard1:/data/db
+    networks:
+      - mongoCluster 
+
+
+  shard2:
+    image: mongo
+    command: mongod --shardsvr --replSet shard2 --port 27017 --directoryperdb
+    ports:
+      - 30001:27017
+    volumes:
+      - /etc/localtime:/etc/localtime
+      # - /data/fates/mongo/shard2:/data/db
+    networks:
+      - mongoCluster 
+
+
+  shard3:
+    image: mongo
+    command: mongod --shardsvr --replSet shard3 --port 27017 --directoryperdb
+    ports:
+      - 20003:27017    
+    volumes:
+      - /etc/localtime:/etc/localtime
+      # - /data/fates/mongo/shard3:/data/db
+    networks:
+      - mongoCluster 
+
+
+  # 配置服务器, 用于存储集群的元数据和配置设置 设置 config1/config2/config3为config sever副本集
+  config1:
+    container_name: config1
+    image: mongo
+    # --configsvr: 这个参数仅仅是将默认端口由27017改为27019, 如果指定--port可不添加该参数
+    command: mongod --configsvr --directoryperdb --replSet configsrv --port 27017
+    ports:
+      - 10001:27017    
+    volumes:
+      - /etc/localtime:/etc/localtime
+      # - /data/fates/mongo/config1:/data/configdb
+    networks:
+      - mongoCluster 
+
+
+  config2:
+    container_name: config2
+    image: mongo
+    command: mongod --configsvr --directoryperdb --replSet configsrv --port 27017
+    ports:
+      - 10002:27017    
+    volumes: 
+      - /etc/localtime:/etc/localtime
+      # - /data/fates/mongo/config2:/data/configdb
+    networks:
+      - mongoCluster 
+ 
+
+  # 声明此mongod实例作为分片集群的配置服务器。默认端口是27019，默认的dbpath目录是/data/configdb，
+  # 配置服务器存储集群的元数据和配置设置。从MongoDB 3.4开始，配置服务器必须部署为一个replicate set副本集，
+  # 为了防止这个配置服务是单点服务。如果你的集群只有一个配置服务器，一旦这个配置服务器出现故障则集群将不可用
+  config3:
+    container_name: config3
+    image: mongo
+    command: mongod --configsvr --directoryperdb --replSet configsrv --port 27017
+    ports:
+      - 10003:27017    
+    volumes:
+      - /etc/localtime:/etc/localtime
+      # - /data/fates/mongo/config3:/data/configdb
+    networks:
+      - mongoCluster 
+
+  # 路由
+  mongos:
+    image: mongo
+    # mongo3.6版默认绑定IP为127.0.0.1，此处绑定0.0.0.0是允许其他容器或主机可以访问
+    command: mongos --configdb configsrv/config1:27017,config2:27017,config3:27017 --bind_ip 0.0.0.0 --port 27017
+    ports:
+      - 27017:27017
+    volumes:
+      - /etc/localtime:/etc/localtime
+    depends_on:
+      - config1
+      - config2
+      - config3
+    networks:
+      - mongoCluster  
+
+
+  mongo-express:
+    image: mongo-express
+    container_name: mongo-express
+    ports:
+      - 8081:8081
+    environment:
+      # - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      # - ME_CONFIG_MONGODB_ADMINPASSWORD=admin
+      - ME_CONFIG_MONGODB_SERVER=mongos
+    networks:
+      - mongoCluster 
+
+
+networks:
+  mongoCluster:
+    external: true

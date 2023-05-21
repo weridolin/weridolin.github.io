@@ -84,4 +84,4 @@ def aggregate():
 # createIndex()
 # query()
 # setSharedCollection()
-insert()
+# insert()

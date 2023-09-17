@@ -2,6 +2,7 @@ from sqlalchemy.orm import Relationship,DeclarativeBase
 from sqlalchemy import ForeignKey,Column,INTEGER,String
 from sqlalchemy import create_engine
 import os
+from sqlalchemy.sql import func
 from sqlalchemy import desc,asc
 
 class Base(DeclarativeBase):
@@ -10,7 +11,7 @@ class Base(DeclarativeBase):
 class USER(Base):
     __tablename__ = "user"
     id = Column(INTEGER,primary_key=True)
-    name = Column(String(256))
+    name = Column(String(256),server_default=func.current_time())
 
 
 class flow(Base):

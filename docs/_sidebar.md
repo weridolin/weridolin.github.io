@@ -48,6 +48,9 @@
    - [celery-sqlalchemy-beat](/project/sa-celery-beat.md)
    - [个人网站](/project/site.md)
 
+- 实践记录
+   - [基于nginx+confd+ectd的服务发现](/practice/基于nginx+confd+ectd的服务发现.md)
+
 - 其他
     - [优先队列](/python/_heap/优先队列.md) 
 

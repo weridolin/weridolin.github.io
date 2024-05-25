@@ -202,19 +202,19 @@
 
 ## 函数
 
-def test(nums):
-    if len(nums)==1:
-        return nums[0]
-    dp=[0]*(len(nums))
-    dp[0]=nums[0]
-    for i in range(1,len(nums)):
-        if dp[i-1]*nums[i]<0:
-            dp[i]=max(dp[i-1],nums[i])
-        elif dp[i-1]*nums[i]>=0:
-            dp[i]=max(dp[i-1],dp[i-1]*nums[i],nums[i])
-    print(dp)
-    return dp[-1]
-print(test([-2,3,-4]))
+# def test(nums):
+#     if len(nums)==1:
+#         return nums[0]
+#     dp=[0]*(len(nums))
+#     dp[0]=nums[0]
+#     for i in range(1,len(nums)):
+#         if dp[i-1]*nums[i]<0:
+#             dp[i]=max(dp[i-1],nums[i])
+#         elif dp[i-1]*nums[i]>=0:
+#             dp[i]=max(dp[i-1],dp[i-1]*nums[i],nums[i])
+#     print(dp)
+#     return dp[-1]
+# print(test([-2,3,-4]))
 
 # 4. 确定遍历顺序,比如当前状态是上次状态决定,则遍历顺序为从前到后
 # 从前到后
@@ -374,3 +374,91 @@ print(test([-2,3,-4]))
 ################## 不同路径2
 
 
+
+################### 198 打家劫舍
+
+### 1 确定动态规划数据的含义
+### dp[i]: 表示第i个房子可以偷到的最大金额
+
+
+### 2 确定递推公式 
+# 想要求dp[i],只有2种情况,上一个房子偷或者不偷
+# dp[i] = max(dp[i-1],dp[i-2]+nums[i])
+
+### 3 确定初始条件
+# dp[0] = nums[0]  dp[1] = max(nums[0],nums[1]) 偷与不偷第一家
+
+### 4 确定遍历顺序
+# 从左到右
+
+# def rob(nums) -> int:
+#     if len(nums) == 1:
+#         return nums[0]
+#     if len(nums) == 2:
+#         return max(nums[0],nums[1])
+    
+#     dp = [0]*(len(nums))
+#     dp[0] = nums[0]
+#     dp[1] = max(nums[1],nums[0])
+#     dp[2] = max(dp[0]+nums[2],dp[1])
+#     for i in range(3,len(nums)):
+#         dp[i] = max(dp[i-1],dp[i-2]+nums[i])
+#     return dp[-1]
+
+# print(rob([2,1,1,2]))
+
+
+
+##### 55 跳跃游戏
+
+## 暴力解法
+# def canJump(self, nums) -> bool:
+#     if len(nums) == 1:
+#         return True
+#     dp = [False]*len(nums)
+#     dp[0] = True
+#     for i in range(1,len(nums)):
+#         for j in range(i):
+#             if dp[j] and nums[j] >= i-j: #只要i之前的某个位置可以到达，并且这个位置的值大于等于i和j的差值，那么i就可以到达
+#                 dp[i] = True
+#                 break
+#     return dp[-1]
+
+
+
+# 1. 确定dp数组和实际下标代表的实际含义
+# dp[i]表示第i个位置是否可以到达的最大距离
+
+# 2. 代表的是从[0,i][0 , i][0,i]的任意一点处出发，你最大可以跳跃到的位置，那么就考虑是否从下标i出发，
+# 于是dp[i]可以由两个方面推出:
+
+# 从下标i出发，能到达的位置是nums[i]+i 且 
+# 不从下标i出发，最大能到达的就是dp[i−1]
+# 于是dp[i]=max(dp[i−1],nums[i]+i)
+
+# 3. dp数据初始化,即初始状态
+# dp[0] = True
+
+# 4. 确定遍历顺序,比如当前状态是上次状态决定,则遍历顺序为从前到后
+# 从前到后
+
+# def canJump(nums) -> bool:
+#     if len(nums) == 1:
+#         return True
+#     if nums[0] == 0:
+#         return False
+#     dp = [0]*len(nums)
+#     dp[0] = nums[0]
+#     for i in range(1,len(nums)-1):
+#         dp[i] = max(dp[i-1],nums[i]+i)
+#         if dp[i] >= len(nums)-1:
+#             return True
+#         if dp[i]==i: ## dp[i] == i 说明当前位置只能到达第i个位置，没法再往下跳跃
+#             return False
+#     return True
+#     # print(dp)
+# print(canJump([3,2,1,0,4]))
+
+
+
+## 45 跳跃游戏2

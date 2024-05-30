@@ -135,6 +135,6 @@ class Flask:
 
 ```
 
-上述代码既可完成flask兼容 http 和 ws协议。具体代码可查看:[flask-websocket-middleware]()
+上述代码既可完成flask兼容 http 和 ws协议。具体代码可查看:[flask-websocket-middleware](https://github.com/weridolin/wsgi-weboscket/tree/master/flask_)
 
 ##### django 中间件扩展
